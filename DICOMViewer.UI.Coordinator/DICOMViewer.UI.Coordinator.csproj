@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <EnableWpf>true</EnableWpf>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <AssemblyName>DICOMViewer.UI.Coordinator</AssemblyName>
+    <RootNamespace>DICOMViewer.UI.Coordinator</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.0" />
+    <PackageReference Include="Prism.Unity" Version="8.1.97" />
+    <PackageReference Include="Prism.Wpf" Version="8.1.97" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TheSSS.DICOMViewer.Presentation\TheSSS.DICOMViewer.Presentation.csproj" />
+  </ItemGroup>
+</Project>
