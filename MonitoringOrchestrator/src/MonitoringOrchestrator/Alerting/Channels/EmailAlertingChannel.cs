@@ -1,66 +1,118 @@
-using TheSSS.DICOMViewer.Monitoring.Interfaces;
-using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
-using TheSSS.DICOMViewer.Monitoring.Contracts;
-using TheSSS.DICOMViewer.Monitoring.Configuration;
-using TheSSS.DICOMViewer.Monitoring.Exceptions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using TheSSS.DICOMViewer.Monitoring.Configuration;
+using TheSSS.DICOMViewer.Monitoring.Contracts;
+using TheSSS.DICOMViewer.Monitoring.Exceptions;
+using TheSSS.DICOMViewer.Monitoring.Interfaces;
+using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
 using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace TheSSS.DICOMViewer.Monitoring.Alerting.Channels
 {
+    /// <summary>
+    /// Implementation of <see cref="IAlertingChannel"/> for sending alerts via email.
+    /// Dispatches alerts as email notifications to configured administrator addresses.
+    /// </summary>
     public class EmailAlertingChannel : IAlertingChannel
     {
+        private const string ChannelTypeValue = "Email";
         private readonly IEmailServiceAdapter _emailServiceAdapter;
-        private readonly AlertingOptions _alertingOptions;
+        private readonly IOptions<AlertingOptions> _alertingOptions;
         private readonly ILogger<EmailAlertingChannel> _logger;
+        private static readonly Dictionary<string, int> SeverityOrder = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Information", 1 },
+            { "Warning", 2 },
+            { "Error", 3 },
+            { "Critical", 4 }
+        };
 
-        public string ChannelType => "Email";
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="EmailAlertingChannel"/> class.
+        /// </summary>
+        /// <param name="emailServiceAdapter">The adapter for sending emails.</param>
+        /// <param name="alertingOptions">The alerting configuration options.</param>
+        /// <param name="logger">The logger.</param>
         public EmailAlertingChannel(
             IEmailServiceAdapter emailServiceAdapter,
             IOptions<AlertingOptions> alertingOptions,
             ILogger<EmailAlertingChannel> logger)
         {
             _emailServiceAdapter = emailServiceAdapter ?? throw new ArgumentNullException(nameof(emailServiceAdapter));
-            _alertingOptions = alertingOptions?.Value ?? throw new ArgumentNullException(nameof(alertingOptions));
+            _alertingOptions = alertingOptions ?? throw new ArgumentNullException(nameof(alertingOptions));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
+        /// <inheritdoc/>
         public async Task DispatchAlertAsync(NotificationPayloadDto payload, CancellationToken cancellationToken)
         {
-            if (payload == null) throw new ArgumentNullException(nameof(payload));
-
-            _logger.LogInformation("Attempting to dispatch alert via {ChannelType} for rule: {RuleName}, Severity: {Severity}.", ChannelType, payload.TriggeredRuleName, payload.Severity);
-
-            var emailChannelSetting = _alertingOptions.Channels
-                .FirstOrDefault(c => c.ChannelType.Equals(ChannelType, StringComparison.OrdinalIgnoreCase) && c.IsEnabled);
+            var emailChannelSetting = _alertingOptions.Value.Channels
+                .FirstOrDefault(c => ChannelTypeValue.Equals(c.ChannelType, StringComparison.OrdinalIgnoreCase) && c.IsEnabled);
 
             if (emailChannelSetting == null)
             {
-                _logger.LogWarning("{ChannelType} alerting channel is not configured or not enabled. Skipping dispatch for rule: {RuleName}.", ChannelType, payload.TriggeredRuleName);
-                return; // Not an error, just not configured for this channel
+                _logger.LogDebug("Email alerting channel is not configured or not enabled.");
+                return;
             }
 
-            if (emailChannelSetting.RecipientDetails == null || !emailChannelSetting.RecipientDetails.Any())
+            if (!IsSeveritySufficient(payload.Severity, emailChannelSetting.MinimumSeverity))
             {
-                _logger.LogError("{ChannelType} alerting channel is enabled but has no recipient email addresses configured for rule: {RuleName}.", ChannelType, payload.TriggeredRuleName);
-                throw new AlertingSystemException(ChannelType, "No recipient email addresses configured for the Email channel.", payload, new InvalidOperationException("RecipientDetails are missing."));
+                _logger.LogInformation("Alert severity '{PayloadSeverity}' for rule '{RuleName}' on component '{SourceComponent}' does not meet minimum '{MinimumSeverity}' for Email channel. Skipping.",
+                    payload.Severity, payload.Title, payload.SourceComponent, emailChannelSetting.MinimumSeverity);
+                return;
+            }
+            
+            if (emailChannelSetting.RecipientEmailAddresses == null || !emailChannelSetting.RecipientEmailAddresses.Any())
+            {
+                _logger.LogWarning("Email alerting channel is enabled but no recipient email addresses are configured.");
+                return;
             }
 
-            try
+            _logger.LogInformation("Dispatching alert via Email: {Title}", payload.Title);
+
+            foreach (var recipient in emailChannelSetting.RecipientEmailAddresses)
             {
-                await _emailServiceAdapter.SendEmailAsync(emailChannelSetting.RecipientDetails, payload.Title, payload.Body);
-                _logger.LogInformation("Successfully dispatched alert via {ChannelType} to {RecipientCount} recipients for rule: {RuleName}.", ChannelType, emailChannelSetting.RecipientDetails.Count, payload.TriggeredRuleName);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning("Email alert dispatch cancelled for recipient {Recipient}.", recipient);
+                    return;
+                }
+
+                try
+                {
+                    await _emailServiceAdapter.SendEmailAsync(recipient, payload.Title, payload.Body);
+                    _logger.LogInformation("Successfully sent email alert to {Recipient} for: {Title}", recipient, payload.Title);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to send email alert to {Recipient} for: {Title}", recipient, payload.Title);
+                    // Potentially throw a single AlertingSystemException after trying all recipients,
+                    // or just log and continue for resilience. For now, log and continue.
+                    // If one email fails, others might succeed.
+                }
             }
-            catch (Exception ex)
+        }
+        
+        private bool IsSeveritySufficient(string payloadSeverity, string? minimumSeverity)
+        {
+            if (string.IsNullOrEmpty(minimumSeverity))
             {
-                _logger.LogError(ex, "Failed to dispatch alert via {ChannelType} for rule: {RuleName}.", ChannelType, payload.TriggeredRuleName);
-                throw new AlertingSystemException(ChannelType, $"Failed to send email for alert: {payload.TriggeredRuleName}.", payload, ex);
+                return true; // No minimum severity defined, always sufficient
             }
+
+            if (SeverityOrder.TryGetValue(payloadSeverity, out int payloadSeverityValue) &&
+                SeverityOrder.TryGetValue(minimumSeverity, out int minimumSeverityValue))
+            {
+                return payloadSeverityValue >= minimumSeverityValue;
+            }
+
+            _logger.LogWarning("Could not compare severities: Payload='{PayloadSeverity}', Minimum='{MinimumSeverity}'. Assuming insufficient.", payloadSeverity, minimumSeverity);
+            return false; // If severities are unknown, treat as insufficient to be safe
         }
     }
 }

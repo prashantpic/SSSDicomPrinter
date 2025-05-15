@@ -1,140 +1,162 @@
 using FluentValidation;
 using TheSSS.DICOMViewer.Monitoring.Configuration;
-using TheSSS.DICOMViewer.Monitoring.Contracts; // For AlertSeverity
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace TheSSS.DICOMViewer.Monitoring.Validators
 {
+    /// <summary>
+    /// Validator for the <see cref="AlertingOptions"/> configuration class.
+    /// Ensures that alerting configurations are valid before use.
+    /// </summary>
     public class AlertingOptionsValidator : AbstractValidator<AlertingOptions>
     {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AlertingOptionsValidator"/> class.
+        /// </summary>
         public AlertingOptionsValidator()
         {
-            RuleFor(x => x.Rules).NotNull();
-            RuleForEach(x => x.Rules).SetValidator(new AlertRuleValidator());
+            RuleFor(options => options.Rules)
+                .NotNull().WithMessage("Alert rules list cannot be null.")
+                .ForEach(rule => rule.SetValidator(new AlertRuleValidator()));
 
-            RuleFor(x => x.Channels).NotNull();
-            RuleForEach(x => x.Channels).SetValidator(new AlertChannelSettingValidator());
+            RuleFor(options => options.Channels)
+                .NotNull().WithMessage("Alert channels list cannot be null.")
+                .ForEach(channel => channel.SetValidator(new AlertChannelSettingValidator()));
 
-            RuleFor(x => x.Throttling).NotNull().SetValidator(new ThrottlingOptionsValidator());
-            RuleFor(x => x.Deduplication).NotNull().SetValidator(new DeduplicationOptionsValidator());
+            RuleFor(options => options.Throttling)
+                .NotNull().WithMessage("Throttling options cannot be null.")
+                .SetValidator(new ThrottlingOptionsValidator());
 
-            RuleFor(x => x.DefaultAlertSourceComponent)
-                .NotEmpty()
-                .WithMessage("DefaultAlertSourceComponent must not be empty.");
+            RuleFor(options => options.Deduplication)
+                .NotNull().WithMessage("Deduplication options cannot be null.")
+                .SetValidator(new DeduplicationOptionsValidator());
         }
     }
 
+    /// <summary>
+    /// Validator for the <see cref="AlertRule"/> configuration class.
+    /// </summary>
     public class AlertRuleValidator : AbstractValidator<AlertRule>
     {
-        private static readonly string[] ValidComparisonOperators = {
-            "GreaterThan", "LessThan", "EqualTo", "NotEqualTo", "Contains", "DoesNotContain"
+        private static readonly HashSet<string> ValidComparisonOperators = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "GreaterThan", "LessThan", "EqualTo", "NotEqualTo", "GreaterThanOrEqualTo", "LessThanOrEqualTo"
         };
-        private static readonly string[] ValidSeverities = Enum.GetNames(typeof(AlertSeverity));
 
+        private static readonly HashSet<string> ValidSeverities = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Information", "Warning", "Error", "Critical"
+        };
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AlertRuleValidator"/> class.
+        /// </summary>
         public AlertRuleValidator()
         {
-            RuleFor(x => x.RuleName)
-                .NotEmpty()
-                .WithMessage("RuleName must not be empty.");
+            RuleFor(rule => rule.RuleName)
+                .NotEmpty().WithMessage("Rule name cannot be empty.");
 
-            RuleFor(x => x.MetricType)
-                .NotEmpty()
-                .WithMessage("MetricType must not be empty.");
+            RuleFor(rule => rule.MetricType)
+                .NotEmpty().WithMessage("Metric type cannot be empty.");
 
-            RuleFor(x => x.ComparisonOperator)
-                .NotEmpty()
+            RuleFor(rule => rule.Severity)
+                .NotEmpty().WithMessage("Severity cannot be empty.")
+                .Must(severity => ValidSeverities.Contains(severity))
+                .WithMessage(severity => $"Severity '{severity.Severity}' is not a valid. Must be one of: {string.Join(", ", ValidSeverities)}.");
+
+            RuleFor(rule => rule.ComparisonOperator)
+                .NotEmpty().WithMessage("Comparison operator cannot be empty.")
                 .Must(op => ValidComparisonOperators.Contains(op))
-                .WithMessage($"ComparisonOperator must be one of: {string.Join(", ", ValidComparisonOperators)}.");
+                .WithMessage(rule => $"Comparison operator '{rule.ComparisonOperator}' is not valid. Must be one of: {string.Join(", ", ValidComparisonOperators)}.");
 
-            RuleFor(x => x.Severity)
-                .NotEmpty()
-                .Must(sev => ValidSeverities.Any(s => s.Equals(sev, StringComparison.OrdinalIgnoreCase)))
-                .WithMessage($"Severity must be one of: {string.Join(", ", ValidSeverities)}.");
-
-            RuleFor(x => x.ConsecutiveFailuresToAlert)
-                .GreaterThanOrEqualTo(1)
-                .WithMessage("ConsecutiveFailuresToAlert must be 1 or greater.");
-
-            // Conditional validation: ThresholdValue is required for numeric comparisons
-            When(x => x.ComparisonOperator == "GreaterThan" || x.ComparisonOperator == "LessThan", () =>
-            {
-                RuleFor(x => x.ThresholdValue)
-                    .NotNull()
-                    .WithMessage("ThresholdValue must be provided for GreaterThan/LessThan comparisons.");
-            });
-            // ExpectedStatus is required for string/status comparisons
-            When(x => x.ComparisonOperator == "EqualTo" || x.ComparisonOperator == "NotEqualTo" || x.ComparisonOperator == "Contains" || x.ComparisonOperator == "DoesNotContain", () =>
-            {
-                // If ThresholdValue is not set, ExpectedStatus should be.
-                // This logic can be tricky if a metric type can be either numeric or string based on context.
-                // For now, if ThresholdValue is null, we assume ExpectedStatus is used.
-                RuleFor(x => x.ExpectedStatus)
-                    .NotEmpty()
-                    .When(x => x.ThresholdValue == null)
-                    .WithMessage("ExpectedStatus must be provided for string/status comparisons if ThresholdValue is not set.");
-            });
-
-            RuleFor(x => x.ThrottleWindowOverride)
-                .Must(t => t == null || t.Value >= TimeSpan.Zero)
-                .WithMessage("ThrottleWindowOverride must be a non-negative time span if provided.");
-
-            RuleFor(x => x.DeduplicationWindowOverride)
-                .Must(t => t == null || t.Value >= TimeSpan.Zero)
-                .WithMessage("DeduplicationWindowOverride must be a non-negative time span if provided.");
+            RuleFor(rule => rule.ConsecutiveFailuresToAlert)
+                .GreaterThanOrEqualTo(1).WithMessage("Consecutive failures to alert must be 1 or greater.");
+            
+            // ThresholdValue validation is highly dependent on MetricType, so generic validation is limited.
+            // Specific validation might be needed elsewhere or if MetricType has known value ranges.
         }
     }
 
+    /// <summary>
+    /// Validator for the <see cref="AlertChannelSetting"/> configuration class.
+    /// </summary>
     public class AlertChannelSettingValidator : AbstractValidator<AlertChannelSetting>
     {
+        private static readonly HashSet<string> ValidChannelTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Email", "UI", "AuditLog"
+        };
+        
+        private static readonly HashSet<string> ValidSeverities = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Information", "Warning", "Error", "Critical"
+        };
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AlertChannelSettingValidator"/> class.
+        /// </summary>
         public AlertChannelSettingValidator()
         {
-            RuleFor(x => x.ChannelType)
-                .NotEmpty()
-                .WithMessage("ChannelType must not be empty.");
+            RuleFor(channel => channel.ChannelType)
+                .NotEmpty().WithMessage("Channel type cannot be empty.")
+                .Must(type => ValidChannelTypes.Contains(type))
+                .WithMessage(channel => $"Channel type '{channel.ChannelType}' is not valid. Must be one of: {string.Join(", ", ValidChannelTypes)}.");
 
-            When(x => x.ChannelType.Equals("Email", StringComparison.OrdinalIgnoreCase), () =>
+            When(channel => channel.IsEnabled && "Email".Equals(channel.ChannelType, StringComparison.OrdinalIgnoreCase), () =>
             {
-                RuleFor(x => x.RecipientDetails)
-                    .NotEmpty()
-                    .WithMessage("RecipientDetails must not be empty for Email channel.")
-                    .ForEach(recipientList =>
-                    {
-                        recipientList.Must(email => !string.IsNullOrWhiteSpace(email) && email.Contains('@')) // Basic email validation
-                                   .WithMessage("Invalid email format in RecipientDetails for Email channel.");
-                    });
+                RuleFor(channel => channel.RecipientEmailAddresses)
+                    .NotNull().WithMessage("Recipient email addresses cannot be null for an enabled Email channel.")
+                    .NotEmpty().WithMessage("Recipient email addresses cannot be empty for an enabled Email channel.")
+                    .ForEach(emailRule => emailRule.EmailAddress().WithMessage("Invalid email address format."));
             });
 
-            RuleFor(x => x.Severities)
-                .ForEach(severityList =>
-                {
-                    severityList.Must(sev => AlertRuleValidator.ValidSeverities.Any(s => s.Equals(sev, StringComparison.OrdinalIgnoreCase)))
-                                .WithMessage($"Invalid severity value in Severities list. Must be one of: {string.Join(", ", AlertRuleValidator.ValidSeverities)}.");
-                });
+            When(channel => !string.IsNullOrEmpty(channel.MinimumSeverity), () =>
+            {
+                RuleFor(channel => channel.MinimumSeverity)
+                    .Must(severity => ValidSeverities.Contains(severity!))
+                    .WithMessage(channel => $"Minimum severity '{channel.MinimumSeverity}' is not a valid. Must be one of: {string.Join(", ", ValidSeverities)}.");
+            });
         }
     }
 
+    /// <summary>
+    /// Validator for the <see cref="ThrottlingOptions"/> configuration class.
+    /// </summary>
     public class ThrottlingOptionsValidator : AbstractValidator<ThrottlingOptions>
     {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ThrottlingOptionsValidator"/> class.
+        /// </summary>
         public ThrottlingOptionsValidator()
         {
-            RuleFor(x => x.DefaultThrottleWindow)
-                .GreaterThanOrEqualTo(TimeSpan.Zero)
-                .WithMessage("DefaultThrottleWindow must be a non-negative time span.");
+            When(options => options.IsEnabled, () =>
+            {
+                RuleFor(options => options.DefaultThrottleWindow)
+                    .GreaterThan(TimeSpan.Zero).WithMessage("Default throttle window must be a positive time span when throttling is enabled.");
 
-            RuleFor(x => x.MaxAlertsPerWindow)
-                .GreaterThanOrEqualTo(0)
-                .WithMessage("MaxAlertsPerWindow must be 0 or greater.");
+                RuleFor(options => options.MaxAlertsPerWindow)
+                    .GreaterThanOrEqualTo(1).WithMessage("Max alerts per window must be at least 1 when throttling is enabled.");
+            });
         }
     }
 
+    /// <summary>
+    /// Validator for the <see cref="DeduplicationOptions"/> configuration class.
+    /// </summary>
     public class DeduplicationOptionsValidator : AbstractValidator<DeduplicationOptions>
     {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DeduplicationOptionsValidator"/> class.
+        /// </summary>
         public DeduplicationOptionsValidator()
         {
-            RuleFor(x => x.DeduplicationWindow)
-                .GreaterThanOrEqualTo(TimeSpan.Zero)
-                .WithMessage("DeduplicationWindow must be a non-negative time span.");
+            When(options => options.IsEnabled, () =>
+            {
+                RuleFor(options => options.DeduplicationWindow)
+                    .GreaterThan(TimeSpan.Zero).WithMessage("Deduplication window must be a positive time span when deduplication is enabled.");
+            });
         }
     }
 }

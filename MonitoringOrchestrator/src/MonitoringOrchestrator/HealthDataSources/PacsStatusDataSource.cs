@@ -1,21 +1,28 @@
+using Microsoft.Extensions.Logging;
 using TheSSS.DICOMViewer.Monitoring.Interfaces;
 using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
 using TheSSS.DICOMViewer.Monitoring.Exceptions;
-using Microsoft.Extensions.Logging;
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace TheSSS.DICOMViewer.Monitoring.HealthDataSources
 {
+    /// <summary>
+    /// Implementation of <see cref="IHealthDataSource"/> for monitoring PACS connectivity.
+    /// Provides health information related to PACS node connectivity by checking all configured PACS nodes.
+    /// </summary>
     public class PacsStatusDataSource : IHealthDataSource
     {
         private readonly IPacsStatusAdapter _pacsStatusAdapter;
         private readonly ILogger<PacsStatusDataSource> _logger;
 
-        public string Name => "PACSConnectivity";
-
+        /// <summary>
+        /// Initializes a new instance of the <see cref="PacsStatusDataSource"/> class.
+        /// </summary>
+        /// <param name="pacsStatusAdapter">The adapter for retrieving PACS statuses.</param>
+        /// <param name="logger">The logger.</param>
         public PacsStatusDataSource(
             IPacsStatusAdapter pacsStatusAdapter,
             ILogger<PacsStatusDataSource> logger)
@@ -24,20 +31,20 @@ namespace TheSSS.DICOMViewer.Monitoring.HealthDataSources
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
+        /// <inheritdoc/>
         public async Task<object> GetHealthDataAsync(CancellationToken cancellationToken)
         {
-            _logger.LogDebug("Attempting to retrieve PACS statuses for data source: {DataSourceName}.", Name);
             try
             {
+                _logger.LogDebug("Fetching PACS node statuses.");
                 var pacsStatuses = await _pacsStatusAdapter.GetAllPacsStatusesAsync(cancellationToken);
-                var statusesList = pacsStatuses.ToList();
-                _logger.LogInformation("Successfully retrieved {Count} PACS statuses for data source: {DataSourceName}.", statusesList.Count, Name);
-                return statusesList;
+                _logger.LogDebug("Successfully fetched {Count} PACS node statuses.", pacsStatuses?.Count() ?? 0);
+                return pacsStatuses ?? Enumerable.Empty<Contracts.PacsConnectionInfoDto>();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving PACS statuses for data source: {DataSourceName}.", Name);
-                throw new DataSourceUnavailableException(Name, $"Failed to retrieve PACS statuses due to: {ex.Message}", ex);
+                _logger.LogError(ex, "Failed to retrieve PACS node statuses.");
+                throw new DataSourceUnavailableException("Failed to retrieve PACS node statuses.", ex, nameof(PacsStatusDataSource));
             }
         }
     }

@@ -4,19 +4,25 @@ using System;
 
 namespace TheSSS.DICOMViewer.Monitoring.Validators
 {
+    /// <summary>
+    /// Validator for the <see cref="MonitoringOptions"/> configuration class.
+    /// Ensures that global monitoring settings, such as check intervals, are valid.
+    /// </summary>
     public class MonitoringOptionsValidator : AbstractValidator<MonitoringOptions>
     {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MonitoringOptionsValidator"/> class.
+        /// </summary>
         public MonitoringOptionsValidator()
         {
-            RuleFor(x => x.SystemHealthCheckInterval)
+            RuleFor(options => options.SystemHealthCheckInterval)
                 .GreaterThan(TimeSpan.Zero)
-                .WithMessage("SystemHealthCheckInterval must be a positive time span.");
-
-            RuleFor(x => x.CriticalErrorLookbackPeriod)
+                .WithMessage("System health check interval must be a positive time span.");
+            
+            // Assuming MonitoringOptions now includes SystemErrorLookbackWindow
+            RuleFor(options => options.SystemErrorLookbackWindow)
                 .GreaterThan(TimeSpan.Zero)
-                .WithMessage("CriticalErrorLookbackPeriod must be a positive time span.");
-
-            // IsMonitoringEnabled is a boolean, usually no validation needed unless specific requirements.
+                .WithMessage("System error lookback window must be a positive time span.");
         }
     }
 }

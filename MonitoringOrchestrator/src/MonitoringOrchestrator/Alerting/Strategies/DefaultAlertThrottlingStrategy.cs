@@ -1,112 +1,122 @@
-using TheSSS.DICOMViewer.Monitoring.Interfaces;
-using TheSSS.DICOMViewer.Monitoring.Contracts;
-using TheSSS.DICOMViewer.Monitoring.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using TheSSS.DICOMViewer.Monitoring.Configuration;
+using TheSSS.DICOMViewer.Monitoring.Contracts;
+using TheSSS.DICOMViewer.Monitoring.Interfaces;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace TheSSS.DICOMViewer.Monitoring.Alerting.Strategies
 {
+    /// <summary>
+    /// Default implementation for alert throttling based on time windows and frequency.
+    /// Implements a basic time-window based alert throttling mechanism.
+    /// </summary>
     public class DefaultAlertThrottlingStrategy : IAlertThrottlingStrategy
     {
-        private readonly AlertingOptions _alertingOptions;
+        private readonly IOptions<AlertingOptions> _alertingOptions;
         private readonly ILogger<DefaultAlertThrottlingStrategy> _logger;
+        
+        // Key: Alert Signature (e.g., RuleName + SourceComponent + optional TargetIdentifier from AlertRule)
+        // Value: List of timestamps when this alert was last fired.
+        private readonly ConcurrentDictionary<string, List<DateTimeOffset>> _alertFireTimestamps;
+        private readonly Timer _cleanupTimer;
 
-        // Key: Alert Key (RuleName + SourceComponent + SubMetric if applicable)
-        // Value: List of timestamps of when alerts were allowed through for this key
-        private readonly ConcurrentDictionary<string, ConcurrentQueue<DateTime>> _alertTimestamps =
-            new ConcurrentDictionary<string, ConcurrentQueue<DateTime>>();
-
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DefaultAlertThrottlingStrategy"/> class.
+        /// </summary>
+        /// <param name="alertingOptions">The alerting configuration options.</param>
+        /// <param name="logger">The logger.</param>
         public DefaultAlertThrottlingStrategy(
             IOptions<AlertingOptions> alertingOptions,
             ILogger<DefaultAlertThrottlingStrategy> logger)
         {
-            _alertingOptions = alertingOptions?.Value ?? throw new ArgumentNullException(nameof(alertingOptions));
+            _alertingOptions = alertingOptions ?? throw new ArgumentNullException(nameof(alertingOptions));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _alertFireTimestamps = new ConcurrentDictionary<string, List<DateTimeOffset>>();
+
+            // Cleanup old entries periodically to prevent memory leaks.
+            // The cleanup interval could be configurable. For now, set to a fraction of typical throttle windows.
+            var cleanupInterval = TimeSpan.FromMinutes(Math.Max(1, _alertingOptions.Value.Throttling.DefaultThrottleWindow.TotalMinutes / 4));
+            _cleanupTimer = new Timer(CleanupOldEntries, null, cleanupInterval, cleanupInterval);
         }
 
+        /// <inheritdoc/>
         public Task<bool> ShouldThrottleAsync(AlertContextDto alertContext, CancellationToken cancellationToken)
         {
-            if (!_alertingOptions.Throttling.IsEnabled)
+            var throttlingOptions = _alertingOptions.Value.Throttling;
+            if (!throttlingOptions.IsEnabled)
             {
-                _logger.LogTrace("Throttling is disabled. Alert ID {AlertId} for rule '{RuleName}' will not be throttled.", alertContext.AlertInstanceId, alertContext.TriggeredRuleName);
                 return Task.FromResult(false);
             }
 
-            var alertKey = GetAlertKey(alertContext);
-            var now = DateTime.UtcNow;
-            var throttleWindow = GetEffectiveThrottleWindow(alertContext);
-            var maxAlertsInWindow = _alertingOptions.Throttling.MaxAlertsPerWindow;
+            // A more specific alert signature could include TargetIdentifier if the rule is specific.
+            // For now, using RuleName and SourceComponent as a general key.
+            // AlertContextDto.AlertHash could also be used if it's designed for throttling signature.
+            // Let's use TriggeredRuleName + SourceComponent as the key for throttling.
+            string alertSignature = $"{alertContext.TriggeredRuleName}_{alertContext.SourceComponent}";
 
-            if (maxAlertsInWindow <= 0) // If max alerts is 0 or negative, effectively no throttling by count
+            var now = DateTimeOffset.UtcNow;
+            var throttleWindow = throttlingOptions.DefaultThrottleWindow;
+            var maxAlertsPerWindow = throttlingOptions.MaxAlertsPerWindow;
+
+            var timestamps = _alertFireTimestamps.GetOrAdd(alertSignature, _ => new List<DateTimeOffset>());
+
+            lock (timestamps) // Ensure thread-safe access to the list for this specific signature
             {
-                _logger.LogTrace("MaxAlertsPerWindow is {MaxCount}, effectively disabling count-based throttling for alert ID {AlertId}, rule '{RuleName}'.", maxAlertsInWindow, alertContext.AlertInstanceId, alertContext.TriggeredRuleName);
-                // Still, we might register this alert to enable time-based throttling if window is > 0
-                 if (throttleWindow > TimeSpan.Zero)
-                 {
-                    var queue = _alertTimestamps.GetOrAdd(alertKey, _ => new ConcurrentQueue<DateTime>());
-                    queue.Enqueue(now); // Add current alert time
-                    // Prune old timestamps (older than window)
-                    while (queue.TryPeek(out var oldest) && (now - oldest >= throttleWindow))
-                    {
-                        queue.TryDequeue(out _);
-                    }
-                 }
-                return Task.FromResult(false);
+                // Remove timestamps older than the throttle window
+                timestamps.RemoveAll(ts => (now - ts) > throttleWindow);
+
+                if (timestamps.Count >= maxAlertsPerWindow)
+                {
+                    _logger.LogInformation("Alert '{AlertSignature}' throttled. Fired {Count} times in the last {Window}.",
+                        alertSignature, timestamps.Count, throttleWindow);
+                    return Task.FromResult(true); // Throttle
+                }
+
+                // Add current timestamp and allow alert
+                timestamps.Add(now);
+                _logger.LogDebug("Alert '{AlertSignature}' not throttled. Fire count: {Count}/{MaxCount} in window.",
+                    alertSignature, timestamps.Count, maxAlertsPerWindow);
+                return Task.FromResult(false); // Do not throttle
             }
+        }
+
+        private void CleanupOldEntries(object? state)
+        {
+            var throttlingOptions = _alertingOptions.Value.Throttling;
+            if (!throttlingOptions.IsEnabled) return;
+
+            var now = DateTimeOffset.UtcNow;
+            var throttleWindow = throttlingOptions.DefaultThrottleWindow;
             
-            var alertQueue = _alertTimestamps.GetOrAdd(alertKey, _ => new ConcurrentQueue<DateTime>());
+            _logger.LogDebug("Running cleanup for alert throttling strategy cache.");
 
-            // Prune old timestamps (older than window)
-            while (alertQueue.TryPeek(out var oldest) && (now - oldest >= throttleWindow))
+            foreach (var key in _alertFireTimestamps.Keys.ToList()) // ToList to avoid modification issues during iteration
             {
-                alertQueue.TryDequeue(out _);
+                if (_alertFireTimestamps.TryGetValue(key, out var timestamps))
+                {
+                    lock (timestamps)
+                    {
+                        timestamps.RemoveAll(ts => (now - ts) > throttleWindow.Add(TimeSpan.FromMinutes(5))); // Add a buffer
+                        if (!timestamps.Any())
+                        {
+                            _alertFireTimestamps.TryRemove(key, out _);
+                            _logger.LogDebug("Removed empty timestamp list for alert signature '{AlertSignature}'.", key);
+                        }
+                    }
+                }
             }
-
-            // Check if count within window exceeds max
-            if (alertQueue.Count >= maxAlertsInWindow)
-            {
-                _logger.LogInformation("Alert ID {AlertId} for rule '{RuleName}' (Key: {AlertKey}) is THROTTLED. Count in window ({Count}) >= MaxAlertsPerWindow ({MaxAlerts}). Window: {ThrottleWindow}.",
-                    alertContext.AlertInstanceId, alertContext.TriggeredRuleName, alertKey, alertQueue.Count, maxAlertsInWindow, throttleWindow);
-                return Task.FromResult(true);
-            }
-
-            // If not throttled, add current timestamp and allow
-            alertQueue.Enqueue(now);
-            _logger.LogDebug("Alert ID {AlertId} for rule '{RuleName}' (Key: {AlertKey}) is NOT throttled. Count in window: {Count}. Adding current timestamp.",
-                 alertContext.AlertInstanceId, alertContext.TriggeredRuleName, alertKey, alertQueue.Count);
-
-            return Task.FromResult(false);
+            _logger.LogDebug("Finished cleanup for alert throttling strategy cache.");
         }
-
-        private TimeSpan GetEffectiveThrottleWindow(AlertContextDto alertContext)
-        {
-            var rule = _alertingOptions.Rules?.FirstOrDefault(r => r.RuleName == alertContext.TriggeredRuleName);
-            return rule?.ThrottleWindowOverride ?? _alertingOptions.Throttling.DefaultThrottleWindow;
-        }
-
-        private string GetAlertKey(AlertContextDto alertContext)
-        {
-            // This key should be specific enough to group similar alerts for throttling purposes.
-            // Using RuleName and SourceComponent is a good start.
-            // If RawData contains specific identifiers (e.g., PACS AETitle, Task Name), include them.
-            string subIdentifier = "GLOBAL"; // Default if no specific sub-identifier
-
-            if (alertContext.RawData is PacsConnectionInfoDto pacsInfo)
-            {
-                subIdentifier = pacsInfo.PacsNodeId ?? "UNKNOWN_PACS";
-            }
-            else if (alertContext.RawData is AutomatedTaskStatusInfoDto taskInfo)
-            {
-                subIdentifier = taskInfo.TaskName ?? "UNKNOWN_TASK";
-            }
-            // Add other specific DTO checks as needed.
-
-            return $"{alertContext.TriggeredRuleName}_{alertContext.SourceComponent}_{subIdentifier}";
-        }
+        
+        // Dispose the timer when the strategy is disposed (if it were disposable)
+        // For a singleton, this might be managed by the application lifecycle if using IDisposable.
+        // For simplicity here, BackgroundService would typically handle this kind of cleanup on shutdown.
+        // If this strategy is registered as a singleton, consider IDisposable.
     }
 }

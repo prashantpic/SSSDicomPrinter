@@ -1,138 +1,113 @@
 using TheSSS.DICOMViewer.Monitoring.Contracts;
-using TheSSS.DICOMViewer.Monitoring.Configuration;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.Json;
+using System.Text;
 
 namespace TheSSS.DICOMViewer.Monitoring.Mappers
 {
+    /// <summary>
+    /// Handles mapping between internal data models and DTOs for health reporting.
+    /// </summary>
     public static class HealthReportMapper
     {
-        private static readonly JsonSerializerOptions _jsonSerializerOptions = new() { WriteIndented = true };
-
-        public static NotificationPayloadDto ToNotificationPayload(
-            AlertContextDto alertContext,
-            string channelType,
-            List<string>? recipientDetails,
-            string defaultSourceComponent)
+        /// <summary>
+        /// Converts an <see cref="AlertContextDto"/> into a <see cref="NotificationPayloadDto"/>.
+        /// Formats the message body based on the raw data type and triggered rule.
+        /// </summary>
+        /// <param name="alertContext">The alert context to convert.</param>
+        /// <returns>A <see cref="NotificationPayloadDto"/> suitable for dispatching.</returns>
+        public static NotificationPayloadDto ToNotificationPayload(AlertContextDto alertContext)
         {
-            var title = $"System Alert: {alertContext.Severity} - {alertContext.TriggeredRuleName}";
-            var body = $"Severity: {alertContext.Severity}\n" +
-                       $"Timestamp: {alertContext.Timestamp:yyyy-MM-dd HH:mm:ss UTC}\n" +
-                       $"Source Component: {alertContext.SourceComponent ?? defaultSourceComponent}\n" +
-                       $"Rule Name: {alertContext.TriggeredRuleName}\n" +
-                       $"Message: {alertContext.Message}\n" +
-                       $"Details:\n{FormatRawData(alertContext.RawData)}";
+            if (alertContext == null)
+            {
+                throw new ArgumentNullException(nameof(alertContext));
+            }
+
+            var title = $"Alert: {alertContext.TriggeredRuleName} - {alertContext.Severity}";
+            var bodyBuilder = new StringBuilder();
+
+            bodyBuilder.AppendLine($"An alert of severity '{alertContext.Severity}' has been triggered for '{alertContext.SourceComponent}'.");
+            bodyBuilder.AppendLine($"Rule: {alertContext.TriggeredRuleName}");
+            bodyBuilder.AppendLine($"Timestamp: {alertContext.Timestamp:yyyy-MM-dd HH:mm:sszzz}");
+            bodyBuilder.AppendLine($"Message: {alertContext.Message}");
+
+            if (alertContext.RawData != null)
+            {
+                bodyBuilder.AppendLine("\nDetails:");
+                switch (alertContext.RawData)
+                {
+                    case StorageHealthInfoDto storageInfo:
+                        bodyBuilder.AppendLine($"- Path: {storageInfo.Path}");
+                        bodyBuilder.AppendLine($"- Used Space: {storageInfo.UsedPercentage:F2}%");
+                        bodyBuilder.AppendLine($"- Free Space: {FormatBytes(storageInfo.FreeSpaceBytes)}");
+                        bodyBuilder.AppendLine($"- Total Capacity: {FormatBytes(storageInfo.TotalCapacityBytes)}");
+                        break;
+                    case DatabaseConnectivityInfoDto dbInfo:
+                        bodyBuilder.AppendLine($"- Connected: {dbInfo.IsConnected}");
+                        if (!dbInfo.IsConnected)
+                            bodyBuilder.AppendLine($"- Error: {dbInfo.ErrorMessage}");
+                        if(dbInfo.LatencyMs.HasValue)
+                            bodyBuilder.AppendLine($"- Latency: {dbInfo.LatencyMs} ms");
+                        break;
+                    case PacsConnectionInfoDto pacsInfo:
+                        bodyBuilder.AppendLine($"- PACS Node ID: {pacsInfo.PacsNodeId}");
+                        bodyBuilder.AppendLine($"- Connected: {pacsInfo.IsConnected}");
+                        if (!pacsInfo.IsConnected)
+                            bodyBuilder.AppendLine($"- Error: {pacsInfo.LastEchoErrorMessage}");
+                        break;
+                    case LicenseStatusInfoDto licenseInfo:
+                        bodyBuilder.AppendLine($"- Valid: {licenseInfo.IsValid}");
+                        bodyBuilder.AppendLine($"- Status: {licenseInfo.StatusMessage}");
+                        if (licenseInfo.ExpiryDate.HasValue)
+                            bodyBuilder.AppendLine($"- Expiry Date: {licenseInfo.ExpiryDate:yyyy-MM-dd}");
+                        if (licenseInfo.DaysUntilExpiry.HasValue)
+                            bodyBuilder.AppendLine($"- Days Until Expiry: {licenseInfo.DaysUntilExpiry}");
+                        break;
+                    case SystemErrorInfoSummaryDto errorSummary:
+                        bodyBuilder.AppendLine($"- Critical Errors (24h): {errorSummary.CriticalErrorCountLast24Hours}");
+                        if(errorSummary.ErrorTypeSummaries != null && errorSummary.ErrorTypeSummaries.Any())
+                        {
+                            bodyBuilder.AppendLine("- Top Error Types:");
+                            foreach(var summary in errorSummary.ErrorTypeSummaries)
+                            {
+                                bodyBuilder.AppendLine($"  - Type: {summary.Type}, Count: {summary.Count}");
+                            }
+                        }
+                        break;
+                    case AutomatedTaskStatusInfoDto taskStatus:
+                        bodyBuilder.AppendLine($"- Task Name: {taskStatus.TaskName}");
+                        bodyBuilder.AppendLine($"- Last Run Status: {taskStatus.LastRunStatus}");
+                        if (taskStatus.LastRunTimestamp.HasValue)
+                            bodyBuilder.AppendLine($"- Last Run: {taskStatus.LastRunTimestamp:yyyy-MM-dd HH:mm:sszzz}");
+                        if (!string.IsNullOrEmpty(taskStatus.ErrorMessage))
+                            bodyBuilder.AppendLine($"- Error: {taskStatus.ErrorMessage}");
+                        break;
+                    default:
+                        bodyBuilder.AppendLine($"- Raw Data: {alertContext.RawData.ToString()}");
+                        break;
+                }
+            }
 
             return new NotificationPayloadDto
             {
                 Title = title,
-                Body = body,
+                Body = bodyBuilder.ToString(),
                 Severity = alertContext.Severity,
                 Timestamp = alertContext.Timestamp,
-                TargetChannelType = channelType,
-                RecipientDetails = recipientDetails,
-                SourceComponent = alertContext.SourceComponent ?? defaultSourceComponent,
-                TriggeredRuleName = alertContext.TriggeredRuleName
+                SourceComponent = alertContext.SourceComponent
+                // RecipientDetails will be handled by the specific channel if needed
             };
         }
 
-        private static string FormatRawData(object? rawData)
+        private static string FormatBytes(long bytes)
         {
-            if (rawData == null) return "N/A";
-
-            try
+            string[] suffix = { "B", "KB", "MB", "GB", "TB" };
+            int i;
+            double dblSByte = bytes;
+            for (i = 0; i < suffix.Length && bytes >= 1024; i++, bytes /= 1024)
             {
-                return JsonSerializer.Serialize(rawData, _jsonSerializerOptions);
+                dblSByte = bytes / 1024.0;
             }
-            catch (Exception)
-            {
-                // Fallback if serialization fails (e.g., complex object graph)
-                return rawData.ToString() ?? "Raw data could not be serialized.";
-            }
-        }
-
-        public static OverallHealthStatus DetermineOverallStatus(HealthReportDto report)
-        {
-            if (report == null) return OverallHealthStatus.Unknown;
-
-            var statuses = new List<OverallHealthStatus>();
-
-            if (report.DatabaseHealth != null)
-            {
-                if (!report.DatabaseHealth.IsConnected) statuses.Add(OverallHealthStatus.Error);
-            }
-
-            if (report.LicenseStatus != null)
-            {
-                if (!report.LicenseStatus.IsValid && (report.LicenseStatus.DaysUntilExpiry == null || report.LicenseStatus.DaysUntilExpiry <= 0))
-                    statuses.Add(OverallHealthStatus.Error);
-                else if (report.LicenseStatus.DaysUntilExpiry.HasValue && report.LicenseStatus.DaysUntilExpiry.Value <= 30 && report.LicenseStatus.DaysUntilExpiry.Value > 0) // Assuming 30 days warning
-                    statuses.Add(OverallHealthStatus.Warning);
-            }
-
-            if (report.SystemErrorSummary != null)
-            {
-                if (report.SystemErrorSummary.CriticalErrorCountLast24Hours > 0) // Assuming any critical error is a CRITICAL overall state
-                    statuses.Add(OverallHealthStatus.Error); // Or Critical, depending on desired mapping. Let's map to Error.
-            }
-
-            if (report.StorageHealth != null)
-            {
-                // Example threshold, should ideally come from config or rule evaluation
-                if (report.StorageHealth.UsedPercentage > 95) statuses.Add(OverallHealthStatus.Error);
-                else if (report.StorageHealth.UsedPercentage > 85) statuses.Add(OverallHealthStatus.Warning);
-            }
-
-            if (report.PacsConnections != null && report.PacsConnections.Any(p => !p.IsConnected))
-            {
-                // If all PACS are down, it might be an Error. If some, Warning.
-                if (report.PacsConnections.All(p => !p.IsConnected && report.PacsConnections.Any())) statuses.Add(OverallHealthStatus.Error);
-                else statuses.Add(OverallHealthStatus.Warning);
-            }
-            
-            if (report.AutomatedTaskStatuses != null)
-            {
-                foreach(var task in report.AutomatedTaskStatuses)
-                {
-                    if (task.LastRunStatus.Equals("Failed", StringComparison.OrdinalIgnoreCase))
-                    {
-                        statuses.Add(OverallHealthStatus.Warning); // A single failed task could be a warning or error
-                        break; 
-                    }
-                }
-            }
-
-            if (statuses.Contains(OverallHealthStatus.Error)) return OverallHealthStatus.Error;
-            if (statuses.Contains(OverallHealthStatus.Critical)) return OverallHealthStatus.Critical; // If Critical enum is used distinctly
-            if (statuses.Contains(OverallHealthStatus.Warning)) return OverallHealthStatus.Warning;
-
-            return OverallHealthStatus.Healthy;
-        }
-
-        public static AlertContextDto CreateAlertContext(
-            AlertRule rule,
-            object triggeringData,
-            string message,
-            string? sourceComponent = null)
-        {
-            AlertSeverity severity;
-            if (!Enum.TryParse<AlertSeverity>(rule.Severity, true, out severity))
-            {
-                severity = AlertSeverity.Warning; // Default if parsing fails
-            }
-
-            return new AlertContextDto
-            {
-                TriggeredRuleName = rule.RuleName,
-                Severity = severity,
-                Timestamp = DateTime.UtcNow,
-                SourceComponent = sourceComponent ?? "MonitoringOrchestrator",
-                Message = message,
-                RawData = triggeringData,
-                AlertInstanceId = Guid.NewGuid()
-            };
+            return $"{dblSByte:0.##} {suffix[i]}";
         }
     }
 }
