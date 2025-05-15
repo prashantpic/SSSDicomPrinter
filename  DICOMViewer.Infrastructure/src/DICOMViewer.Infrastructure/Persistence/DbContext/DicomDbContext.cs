@@ -5,6 +5,8 @@ namespace TheSSS.DICOMViewer.Infrastructure.Persistence.DbContext
 {
     public class DicomDbContext : Microsoft.EntityFrameworkCore.DbContext
     {
+        public DicomDbContext(DbContextOptions<DicomDbContext> options) : base(options) { }
+
         public DbSet<PatientDbo> Patients { get; set; }
         public DbSet<StudyDbo> Studies { get; set; }
         public DbSet<SeriesDbo> Series { get; set; }
@@ -19,8 +21,6 @@ namespace TheSSS.DICOMViewer.Infrastructure.Persistence.DbContext
         public DbSet<RoleDbo> Roles { get; set; }
         public DbSet<PermissionDbo> Permissions { get; set; }
         public DbSet<RolePermissionDbo> RolePermissions { get; set; }
-
-        public DicomDbContext(DbContextOptions<DicomDbContext> options) : base(options) { }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
