@@ -1,4 +1,5 @@
-REM This is a placeholder for a large DICOM file (e.g., one slice of a ~2GB dataset).
-REM Actual DICOM binary data should reside in this file.
-REM For testing purposes, this file might be several megabytes to hundreds of megabytes.
-REM The full dataset (e.g., "dicom_2gb_dataset_1") would contain multiple such files.
+// Placeholder for a large DICOM file (e.g., part of a 2GB dataset).
+// Actual DICOM binary data would be here. For the purpose of this generation, this file is a placeholder.
+// Size: Approx. 100MB (representative file of a larger dataset)
+// DatasetTotalSize: Approx. 2GB
+// This file should be populated with actual test data.

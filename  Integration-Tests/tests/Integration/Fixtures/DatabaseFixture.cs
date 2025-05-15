@@ -3,7 +3,7 @@ using Microsoft.Extensions.Configuration;
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using TheSSS.DicomViewer.Infrastructure.Data; // Namespace for DicomDbContext
+using TheSSS.DicomViewer.Infrastructure; // For DicomDbContext
 
 namespace TheSSS.DicomViewer.IntegrationTests.Fixtures
 {
@@ -11,113 +11,142 @@ namespace TheSSS.DicomViewer.IntegrationTests.Fixtures
     {
         public string ConnectionString { get; private set; }
         private readonly IConfiguration _configuration;
-        private static readonly object _lock = new object();
-        private static bool _databaseInitialized = false;
+        private string _dbFilePath;
 
-        public DatabaseFixture(IConfiguration configuration)
+        // Constructor to receive IConfiguration, typically resolved from AppHostFixture or built ad-hoc
+        public DatabaseFixture()
         {
-            _configuration = configuration;
-            // Prefer a unique file-based database for each DatabaseFixture instance to ensure full isolation
-            // if tests might run in parallel or if in-memory shared cache behavior is not sufficient.
-            // For this example, using the configured string, which could be file-based or in-memory.
-            var configuredConnectionString = _configuration.GetConnectionString("TestDatabase");
-            if (string.IsNullOrEmpty(configuredConnectionString) || configuredConnectionString.ToLowerInvariant().Contains(":memory:"))
+            // This constructor is used when DatabaseFixture is injected directly.
+            // For ICollectionFixture, xUnit creates an instance using a parameterless constructor if available,
+            // or one that can be satisfied by other registered services if part of a more complex DI setup (not typical for xUnit fixtures directly).
+            // AppHostFixture will build and provide IConfiguration. Tests can access it via AppHostFixture.
+            // Here, we build a temporary one for standalone DatabaseFixture use or initial setup path.
+            // In a combined collection, AppHostFixture.Configuration would be preferred.
+             _configuration = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile("appsettings.IntegrationTests.json", optional: false, reloadOnChange: true)
+                .Build();
+
+            InitializeDatabasePath();
+        }
+        
+        // This constructor would be used if IConfiguration is passed from AppHostFixture through a custom collection definition.
+        // For simplicity with standard ICollectionFixture, the parameterless one is often relied upon.
+        // public DatabaseFixture(IConfiguration configuration)
+        // {
+        //     _configuration = configuration;
+        //     InitializeDatabasePath();
+        // }
+
+        private void InitializeDatabasePath()
+        {
+            var configuredConnectionString = _configuration.GetConnectionString("DicomDb");
+            if (configuredConnectionString != null && configuredConnectionString.StartsWith("DataSource="))
             {
-                // Ensure unique in-memory DB per fixture instance if using :memory: without shared cache for true isolation
-                // However, for shared :memory: with cache for a collection, this is fine.
-                // Using "DataSource=:memory:" without "cache=shared" means each connection is a new DB.
-                // Using "DataSource=file::memory:?cache=shared" + a static lock for initialization is a common pattern for shared in-memory DB for a collection.
-                ConnectionString = "DataSource=file::memory:?cache=shared"; // Requires careful handling of connection lifetime
+                 // Ensure unique DB for parallel runs if file-based and not in-memory
+                var dbName = configuredConnectionString.Substring("DataSource=".Length);
+                if (dbName.Equals(":memory:", StringComparison.OrdinalIgnoreCase)) {
+                    ConnectionString = configuredConnectionString; // In-memory
+                    _dbFilePath = null;
+                } else {
+                    _dbFilePath = Path.Combine(Path.GetTempPath(), $"test_dicom_{Guid.NewGuid()}.db"); // Unique DB file
+                    ConnectionString = $"DataSource={_dbFilePath}";
+                }
             }
             else
             {
-                // For file-based, ensure unique DB name if multiple fixtures could run in parallel from different collections.
-                // Or rely on collection serialization.
-                var dbFileName = Path.GetFileName(new Uri(configuredConnectionString.Replace("Data Source=", "")).LocalPath);
-                var dbPath = Path.GetDirectoryName(new Uri(configuredConnectionString.Replace("Data Source=", "")).LocalPath) ?? Directory.GetCurrentDirectory();
-                // Ensure a unique DB for this fixture instance if parallel collections might use this fixture type
-                // string uniqueDbName = $"{Path.GetFileNameWithoutExtension(dbFileName)}_{Guid.NewGuid()}{Path.GetExtension(dbFileName)}";
-                // ConnectionString = $"Data Source={Path.Combine(dbPath, uniqueDbName)}";
-                ConnectionString = configuredConnectionString; // Assume config provides a suitable unique path or tests are serialized
+                // Default to a unique temporary file-based SQLite DB if not configured or misconfigured
+                _dbFilePath = Path.Combine(Path.GetTempPath(), $"test_dicom_{Guid.NewGuid()}.db");
+                ConnectionString = $"DataSource={_dbFilePath}";
             }
         }
 
+
         public async Task InitializeAsync()
         {
-            // For shared in-memory (cache=shared) or file-based DB used by a collection,
-            // migrations should run once.
-            if (ConnectionString.Contains("cache=shared") || !ConnectionString.Contains(":memory:"))
-            {
-                lock (_lock)
-                {
-                    if (!_databaseInitialized)
-                    {
-                        using (var context = CreateContextInternal())
-                        {
-                            context.Database.EnsureDeleted(); // Clean slate
-                            context.Database.Migrate();    // Apply migrations
-                        }
-                        _databaseInitialized = true;
-                    }
-                }
-            }
-            else // For non-shared in-memory DB (each CreateContext is a new DB)
-            {
-                using (var context = CreateContextInternal())
-                {
-                    // context.Database.EnsureDeleted(); // Not needed, it's a new DB
-                    await context.Database.MigrateAsync(); // Apply migrations
-                }
-            }
+            await using var context = CreateContext();
+            await context.Database.EnsureDeletedAsync(); // Clean up any previous instance, if file-based
+            await context.Database.MigrateAsync(); // Apply migrations
+
+            // Optionally, seed a minimal baseline dataset if required for *all* database tests
+            // await SeedBaselineDataAsync(context);
         }
 
         public async Task DisposeAsync()
         {
-            if (!ConnectionString.Contains(":memory:") && !ConnectionString.Contains("cache=shared")) // Only delete unique file DBs
+            if (_dbFilePath != null && File.Exists(_dbFilePath))
             {
-                // If a unique file DB was created per fixture, delete it.
-                // This requires careful handling as the file might be locked.
-                // Often, EnsureDeleted in InitializeAsync (for the *next* run) is safer.
+                // Attempt to delete the database file.
+                // EF Core connections might hold the file lock. Ensure all contexts are disposed.
+                // For safety, a more robust cleanup might involve GC.Collect and GC.WaitForPendingFinalizers before delete.
                 try
                 {
-                    using (var context = CreateContextInternal())
+                     // Ensure all connections are closed by disposing a final context.
+                    await using (var context = CreateContext())
                     {
-                        await context.Database.EnsureDeletedAsync();
+                        // The context itself doesn't need specific action here, just its disposal.
                     }
+                    File.Delete(_dbFilePath);
                 }
-                catch (Exception ex)
+                catch (IOException)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Failed to delete test database {ConnectionString}: {ex.Message}");
+                    // Log or handle inability to delete, possibly due to file lock
+                    Console.WriteLine($"Warning: Could not delete test database file: {_dbFilePath}");
                 }
             }
-            // For shared in-memory (cache=shared), the DB vanishes when all connections are closed.
-            // Resetting _databaseInitialized might be needed if tests run in multiple batches in the same process.
         }
-        
-        private DicomDbContext CreateContextInternal()
+
+        public DicomDbContext CreateContext()
         {
             var optionsBuilder = new DbContextOptionsBuilder<DicomDbContext>();
             optionsBuilder.UseSqlite(ConnectionString);
             return new DicomDbContext(optionsBuilder.Options);
         }
 
-        public DicomDbContext CreateContext()
-        {
-            return CreateContextInternal();
-        }
-
         public async Task SeedDataAsync(Action<DicomDbContext> seedAction)
         {
             await using var context = CreateContext();
-            seedAction(context);
+            await using var transaction = await context.Database.BeginTransactionAsync();
+            try
+            {
+                seedAction(context);
+                await context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+        
+        public async Task SeedDataAsync<TEntity>(params TEntity[] entities) where TEntity : class
+        {
+            await using var context = CreateContext();
+            context.Set<TEntity>().AddRange(entities);
             await context.SaveChangesAsync();
         }
+
 
         public async Task ResetDatabaseAsync()
         {
             await using var context = CreateContext();
             await context.Database.EnsureDeletedAsync();
             await context.Database.MigrateAsync();
+            // If baseline data is needed after reset:
+            // await SeedBaselineDataAsync(context);
         }
+
+        // Example baseline seeding, if needed
+        // private async Task SeedBaselineDataAsync(DicomDbContext context)
+        // {
+        //     // Add any data that should be present for all tests using this fixture
+        //     // For example, some default configuration entries or system users
+        //     if (!await context.YourEntities.AnyAsync())
+        //     {
+        //         context.YourEntities.Add(new YourEntity { /* ... */ });
+        //         await context.SaveChangesAsync();
+        //     }
+        // }
     }
 }

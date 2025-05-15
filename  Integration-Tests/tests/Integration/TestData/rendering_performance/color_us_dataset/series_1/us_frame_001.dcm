@@ -1,2 +1,4 @@
-REM This is a placeholder for a sample color Ultrasound DICOM file.
-REM Actual DICOM binary data for a color US frame should reside here.
+// Placeholder for a color Ultrasound DICOM file.
+// Modality: US
+// PhotometricInterpretation: RGB
+// This file should be populated with actual test data.

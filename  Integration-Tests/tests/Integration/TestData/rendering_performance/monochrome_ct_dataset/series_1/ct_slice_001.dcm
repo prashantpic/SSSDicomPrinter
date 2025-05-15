@@ -1,2 +1,4 @@
-REM This is a placeholder for a sample monochrome CT DICOM file.
-REM Actual DICOM binary data for a CT slice should reside here.
+// Placeholder for a monochrome CT DICOM file.
+// Modality: CT
+// PhotometricInterpretation: MONOCHROME2
+// This file should be populated with actual test data.

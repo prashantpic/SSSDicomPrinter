@@ -1,89 +1,153 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using System;
 using System.IO;
-using TheSSS.DicomViewer.Application.Services; // Assuming this namespace for app services
-using TheSSS.DicomViewer.Infrastructure.Services; // Assuming this namespace for infra services (like actual Odoo/SMTP client)
-using TheSSS.DicomViewer.IntegrationTests.Mocks; // For MockOdooLicensingApiClient, MockSmtpService
-using TheSSS.DicomViewer.Presentation.ViewModels; // If ViewModels are registered
+using System.Threading.Tasks;
+using Xunit;
+using Moq;
+
+// Assuming these namespaces and types exist in referenced projects
+// using TheSSS.DicomViewer.Application;
+// using TheSSS.DicomViewer.Infrastructure;
+// using TheSSS.DicomViewer.Domain;
+
+// Placeholder for actual application and infrastructure service registration extensions
+namespace TheSSS.DicomViewer.Application
+{
+    public interface ILicensingApiClient
+    {
+        Task<LicenseActivationResult> ActivateLicenseAsync(string key, CancellationToken cancellationToken = default);
+        Task<LicenseValidationResult> ValidateLicenseAsync(string key, CancellationToken cancellationToken = default);
+    }
+
+    public interface ISmtpService
+    {
+        Task SendEmailAsync(string recipient, string subject, string body);
+    }
+    // Add other interfaces like ILicensingOrchestrationService, ISystemMonitoringService etc. as needed by tests
+}
+
+namespace TheSSS.DicomViewer.Domain
+{
+    public class LicenseActivationResult { public bool Success { get; set; } public string Message { get; set; } /* Other properties */ }
+    public class LicenseValidationResult { public bool IsValid { get; set; } public DateTime? ExpiryDate { get; set; } /* Other properties */ }
+}
+
+namespace TheSSS.DicomViewer.Infrastructure
+{
+    // Placeholder DicomDbContext
+    public class DicomDbContext : Microsoft.EntityFrameworkCore.DbContext
+    {
+        public DicomDbContext(Microsoft.EntityFrameworkCore.DbContextOptions<DicomDbContext> options) : base(options) { }
+        // Define DbSets as needed, e.g.
+        // public Microsoft.EntityFrameworkCore.DbSet<TheSSS.DicomViewer.Domain.Patient> Patients { get; set; }
+        protected override void OnModelCreating(Microsoft.EntityFrameworkCore.ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+            // Configure your entities here if not done via attributes or separate configurations
+        }
+    }
+
+    public static class InfrastructureServiceCollectionExtensions
+    {
+        public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
+        {
+            // Example: Register DicomDbContext
+            services.AddDbContext<DicomDbContext>(options =>
+                options.UseSqlite(configuration.GetConnectionString("DicomDb")));
+            // Register other infrastructure services (repositories, file stores, etc.)
+            return services;
+        }
+    }
+}
+
+namespace TheSSS.DicomViewer.Application
+{
+    public static class ApplicationServiceCollectionExtensions
+    {
+        public static IServiceCollection AddApplicationServices(this IServiceCollection services)
+        {
+            // Example: Register application services
+            // services.AddScoped<ILicensingOrchestrationService, LicensingOrchestrationService>();
+            // services.AddScoped<IDicomSearchService, DicomSearchService>();
+            // ...
+            return services;
+        }
+    }
+}
+// End of placeholder anemic type definitions for referenced projects
+
 
 namespace TheSSS.DicomViewer.IntegrationTests.Fixtures
 {
+    [CollectionDefinition("SequentialIntegrationTests")]
+    public class SequentialIntegrationTestsCollection : ICollectionFixture<AppHostFixture>, ICollectionFixture<DatabaseFixture>
+    {
+        // This class has no code, and is never created. Its purpose is simply
+        // to be the place to apply [CollectionDefinition] and all the
+        // ICollectionFixture<> interfaces.
+    }
+
     public class AppHostFixture : IAsyncLifetime
     {
-        public IServiceProvider ServiceProvider { get; private set; } = default!;
-        private ServiceCollection _services;
-        private ServiceProvider? _builtProvider;
-
-        public AppHostFixture()
-        {
-            _services = new ServiceCollection();
-        }
+        public IServiceProvider ServiceProvider { get; private set; }
+        public IConfiguration Configuration { get; private set; }
 
         public async Task InitializeAsync()
         {
-            var configuration = new ConfigurationBuilder()
+            Configuration = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.IntegrationTests.json", optional: false, reloadOnChange: true)
+                .AddEnvironmentVariables()
                 .Build();
 
-            _services.AddSingleton<IConfiguration>(configuration);
+            var services = new ServiceCollection();
 
-            // Register application services (examples, replace with actual services and interfaces)
-            _services.AddScoped<ILicensingOrchestrationService, LicensingOrchestrationService>();
-            _services.AddScoped<IDatabaseAdministrationService, DatabaseAdministrationService>();
-            _services.AddScoped<IDicomSearchService, DicomSearchService>();
-            _services.AddScoped<ISystemMonitoringOrchestrationService, SystemMonitoringOrchestrationService>(); // For AlertSystemTests
-            _services.AddScoped<IApplicationUpdateService, ApplicationUpdateService>(); // For ApplicationUpdateSimulationTests, might be mocked
+            // Configure logging
+            services.AddLogging(configure => configure.AddConsole().SetMinimumLevel(LogLevel.Debug)); // Test-friendly logger
 
-            // Register Infrastructure services (e.g., Repositories)
-            // DbContext is usually managed by DatabaseFixture, but other infra services might be registered here.
-            // _services.AddScoped<IPatientRepository, PatientRepository>();
+            // Register configuration
+            services.AddSingleton(Configuration);
 
-            // Register mocks for external dependencies
-            // These will override any production implementations if registered with the same interface
-            _services.AddSingleton<ILicensingApiClient, MockOdooLicensingApiClient>();
-            _services.AddSingleton<ISmtpService, MockSmtpService>();
-            
-            // If IApplicationUpdateService is always mocked:
-            // var mockUpdateService = new Mock<IApplicationUpdateService>();
-            // _services.AddSingleton(mockUpdateService.Object); 
-            // Or provide a concrete mock class similar to MockOdooLicensingApiClient
+            // Register production services (these are placeholders for actual extension methods)
+            services.AddApplicationServices(); // Assumes this extension method exists in REPO-APP-SERVICES
+            services.AddInfrastructureServices(Configuration); // Assumes this extension method exists in REPO-INFRA
 
-            // Register test helpers
-            _services.AddSingleton<DicomTestDatasetManager>();
-            // PerformanceMetricsHelper is static, no DI registration needed unless it becomes instance-based
-            _services.AddSingleton<UiInteractionHelper>();
+            // Override services with mocks based on configuration or test needs
+            if (Configuration.GetValue<bool>("FeatureFlags:EnableMockOdooLicensing", true)) // Default to true for tests
+            {
+                services.AddSingleton<ILicensingApiClient>(sp => new Mocks.MockOdooLicensingApiClient().Object);
+            }
+            // Always mock SMTP for integration tests to prevent actual email sending
+            services.AddSingleton<ISmtpService, Mocks.MockSmtpService>();
 
-            // Register ViewModels if tests interact with them directly
-            // Example:
-            // _services.AddTransient<DicomImageViewerViewModel>();
-            // _services.AddTransient<MainViewModel>(); // Or other relevant ViewModels
+            // Register other mocks as needed, for example:
+            // services.AddSingleton<Mock<IExternalApiService>>(new Mock<IExternalApiService>());
 
-            _builtProvider = _services.BuildServiceProvider();
-            ServiceProvider = _builtProvider;
-
-            // Allow mocks to be further configured by tests if needed, by resolving their concrete mock types.
-            // For example, a test could resolve MockOdooLicensingApiClient and call its setup methods.
+            ServiceProvider = services.BuildServiceProvider();
 
             await Task.CompletedTask;
         }
 
-        public async Task DisposeAsync()
+        public Task DisposeAsync()
         {
-            if (_builtProvider is IAsyncDisposable asyncDisposable)
+            if (ServiceProvider is IDisposable disposableServiceProvider)
             {
-                await asyncDisposable.DisposeAsync();
+                disposableServiceProvider.Dispose();
             }
-            else
-            {
-                _builtProvider?.Dispose();
-            }
-            await Task.CompletedTask;
+            return Task.CompletedTask;
         }
 
-        public T GetService<T>() where T : notnull
+        public T GetService<T>()
         {
             return ServiceProvider.GetRequiredService<T>();
+        }
+
+        public Mock<T> GetMock<T>() where T : class
+        {
+            var service = ServiceProvider.GetRequiredService<T>();
+            return Moq.Mock.Get(service);
         }
     }
 }

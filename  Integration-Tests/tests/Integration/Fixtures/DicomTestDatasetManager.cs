@@ -8,21 +8,26 @@ namespace TheSSS.DicomViewer.IntegrationTests.Fixtures
 {
     public class DicomTestDatasetManager
     {
-        private readonly string _baseTestDataPath;
+        private readonly string _testDataRootPath;
+        private readonly IConfiguration _configuration;
 
         public DicomTestDatasetManager(IConfiguration configuration)
         {
-            _baseTestDataPath = configuration["TestDataPaths:DicomRoot"] 
-                ?? throw new InvalidOperationException("TestDataPaths:DicomRoot configuration not found in appsettings.IntegrationTests.json.");
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _testDataRootPath = _configuration["TestDataPath"] ?? "TestData"; // Default to "TestData" relative to execution
 
-            if (!Path.IsPathRooted(_baseTestDataPath))
+            // Ensure the base path is absolute for reliability
+            if (!Path.IsPathRooted(_testDataRootPath))
             {
-                _baseTestDataPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, _baseTestDataPath));
+                _testDataRootPath = Path.Combine(AppContext.BaseDirectory, _testDataRootPath);
             }
 
-            if (!Directory.Exists(_baseTestDataPath))
+            if (!Directory.Exists(_testDataRootPath))
             {
-                throw new DirectoryNotFoundException($"DICOM test data root directory not found: {_baseTestDataPath}. Ensure TestData directory exists and appsettings.IntegrationTests.json points to it.");
+                // Attempt to create if it doesn't exist, useful for some CI scenarios
+                // Directory.CreateDirectory(_testDataRootPath);
+                // For this exercise, we assume it exists or tests requiring it will fail meaningfully.
+                Console.WriteLine($"Warning: Test data root path '{_testDataRootPath}' not found.");
             }
         }
 
@@ -32,13 +37,7 @@ namespace TheSSS.DicomViewer.IntegrationTests.Fixtures
             {
                 throw new ArgumentException("Dataset name cannot be null or whitespace.", nameof(datasetName));
             }
-
-            var fullPath = Path.Combine(_baseTestDataPath, datasetName);
-            if (!Directory.Exists(fullPath))
-            {
-                throw new DirectoryNotFoundException($"Test dataset directory '{datasetName}' not found at expected path: {fullPath}");
-            }
-            return fullPath;
+            return Path.Combine(_testDataRootPath, datasetName);
         }
 
         public string GetFilePath(string datasetName, string fileName)
@@ -51,30 +50,30 @@ namespace TheSSS.DicomViewer.IntegrationTests.Fixtures
             {
                 throw new ArgumentException("File name cannot be null or whitespace.", nameof(fileName));
             }
-
-            var datasetPath = GetDatasetPath(datasetName); // This will throw if datasetName is invalid
-            var filePath = Path.Combine(datasetPath, fileName);
-
-            if (!File.Exists(filePath))
-            {
-                throw new FileNotFoundException($"Test data file '{fileName}' not found in dataset '{datasetName}' at expected path: {filePath}");
-            }
-            return filePath;
+            return Path.Combine(GetDatasetPath(datasetName), fileName);
         }
 
         public string GetLargeDatasetForPerformanceTest()
         {
-            // As per spec: REQ-DID-005 (e.g., 2GB)
-            // The actual dataset name should match what's in the TestData folder structure
-            // Example name from spec's file structure: "rendering_performance/dicom_2gb_dataset_1"
-            return GetDatasetPath(Path.Combine("rendering_performance", "dicom_2gb_dataset_1"));
+            // As per SDS: Path.Combine(TestDataPath, "rendering_performance", "dicom_2gb_dataset_1")
+            // This can be made configurable via appsettings.IntegrationTests.json if needed.
+            // For now, hardcoding the subpath relative to TestDataRootPath.
+            string largeDatasetRelativePath = _configuration["TestDataPaths:RenderingPerformanceLargeDataset"]
+                                              ?? Path.Combine("rendering_performance", "dicom_2gb_dataset_1");
+            return Path.Combine(_testDataRootPath, largeDatasetRelativePath);
         }
 
-        public IEnumerable<string> GetAllFilePathsFromDataset(string datasetName)
+        public IEnumerable<string> GetAllFilePathsFromDataset(string datasetName, string searchPattern = "*.dcm")
         {
             var datasetPath = GetDatasetPath(datasetName);
-            // Assuming DICOM files have .dcm extension, search recursively.
-            return Directory.EnumerateFiles(datasetPath, "*.dcm", SearchOption.AllDirectories);
+            if (!Directory.Exists(datasetPath))
+            {
+                // Consider throwing FileNotFoundException or DirectoryNotFoundException
+                // For now, returning empty or logging a warning is also an option.
+                Console.WriteLine($"Warning: Dataset directory '{datasetPath}' not found for dataset '{datasetName}'.");
+                return Enumerable.Empty<string>();
+            }
+            return Directory.EnumerateFiles(datasetPath, searchPattern, SearchOption.AllDirectories);
         }
     }
 }

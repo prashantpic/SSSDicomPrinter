@@ -1,5 +1,4 @@
-REM This is a placeholder for a template DICOM file.
-REM It should contain a minimal but valid DICOM structure.
-REM Key tags (PatientName, StudyDate, Modality, UIDs, etc.) will be
-REM programmatically overridden during the test data seeding process
-REM for search performance tests to create a large, varied dataset.
+// Placeholder for a template DICOM file for search performance metadata generation.
+// Key DICOM tags in this file might be used as a base and programmatically varied
+// during the data seeding process for search performance tests.
+// This file should be populated with a minimal, valid DICOM structure.
