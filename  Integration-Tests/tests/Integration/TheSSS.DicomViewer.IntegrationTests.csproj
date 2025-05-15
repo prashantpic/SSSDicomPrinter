@@ -4,47 +4,81 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <LangVersion>12.0</LangVersion>
+    <DotNetVersion>8.0.4</DotNetVersion> <!-- As specified in requirements -->
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
+    <PackageReference Include="FluentAssertions" Version="6.12.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="Moq" Version="4.20.70" />
     <PackageReference Include="xunit" Version="2.8.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.1">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Moq" Version="4.20.70" />
-    <PackageReference Include="FluentAssertions" Version="6.12.0" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.4" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.4">
-      <PrivateAssets>all</PrivateAssets>
+    <PackageReference Include="coverlet.collector" Version="6.0.2">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+     <!-- Required for AppHostFixture DI setup -->
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\ApplicationServices\TheSSS.DicomViewer.Application.csproj" />
-    <ProjectReference Include="..\..\src\DICOM-Viewer-WPF\TheSSS.DicomViewer.Presentation.csproj" />
-    <ProjectReference Include="..\..\src\Infrastructure\TheSSS.DicomViewer.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\CrossCutting\TheSSS.DicomViewer.Common.csproj" />
+    <!-- 
+      Assuming the following project structure relative to this IntegrationTests project:
+      SolutionRoot/
+      ├── src/
+      │   ├── Application/TheSSS.DicomViewer.Application.csproj
+      │   ├── Domain/TheSSS.DicomViewer.Domain.csproj
+      │   ├── Infrastructure/TheSSS.DicomViewer.Infrastructure.csproj
+      │   ├── Common/TheSSS.DicomViewer.Common.csproj
+      │   └── UI/
+      │       └── WpfUi/TheSSS.DicomViewer.WpfUi.csproj
+      └── tests/
+          └── Integration/TheSSS.DicomViewer.IntegrationTests.csproj
+      Adjust Relative Paths if your structure is different.
+    -->
+    <ProjectReference Include="..\..\src\Application\TheSSS.DicomViewer.Application.csproj" />
     <ProjectReference Include="..\..\src\Domain\TheSSS.DicomViewer.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Infrastructure\TheSSS.DicomViewer.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Common\TheSSS.DicomViewer.Common.csproj" />
+    <ProjectReference Include="..\..\src\UI\WpfUi\TheSSS.DicomViewer.WpfUi.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="appsettings.IntegrationTests.json">
+    <Content Include="appsettings.IntegrationTests.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <!-- TestData files are managed by DicomTestDatasetManager and should not be copied to output by default unless explicitly needed -->
-    <Content Include="TestData\**\*">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        <Link>TestData\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="TestData\rendering_performance\dicom_2gb_dataset_1\" />
+    <Folder Include="TestData\licensing\" />
+    <Folder Include="TestData\search_performance\" />
+    <!-- Placeholder for TestData directories and files as per SDS 5.4 -->
+    <!-- Actual large DICOM files should be placed here but not part of the generated code. -->
+    <None Include="TestData\rendering_performance\dicom_2gb_dataset_1\placeholder.txt">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="TestData\licensing\placeholder.txt">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="TestData\search_performance\metadata_seed_template.dcm">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+     <None Include="TestData\search_performance\placeholder.txt">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>
