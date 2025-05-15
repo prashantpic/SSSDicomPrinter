@@ -1,31 +1,21 @@
-using FellowOakDicom;
-using FellowOakDicom.Imaging;
-using System.Drawing;
+using System.Threading.Tasks;
+using foDICOM.Imaging;
+using TheSSS.DICOMViewer.Application.Interfaces.Rendering;
+using TheSSS.DICOMViewer.Domain.Models.Rendering;
 
 namespace TheSSS.DICOMViewer.Infrastructure.Rendering.Services
 {
-    public class DicomImageRenderingService : IDicomImageRenderingService
+    public class DicomImageRenderingService : IDicomImageRenderer
     {
-        private readonly ILoggerAdapter<DicomImageRenderingService> _logger;
-
-        public DicomImageRenderingService(ILoggerAdapter<DicomImageRenderingService> logger)
+        public async Task<System.Drawing.Bitmap> RenderImageAsync(DicomFile dicomFile, ImageRenderingOptions options)
         {
-            _logger = logger;
-        }
-
-        public async Task<Bitmap> RenderImageAsync(DicomFile dicomFile, RenderingOptions options)
-        {
-            try
+            return await Task.Run(() => 
             {
-                var dicomImage = new DicomImage(dicomFile.Dataset);
-                var image = dicomImage.RenderImage();
-                return image.AsBitmap();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "DICOM image rendering failed");
-                return null;
-            }
+                var image = new DICOMImage(dicomFile.Dataset);
+                image.WindowCenter = options.WindowCenter;
+                image.WindowWidth = options.WindowWidth;
+                return image.RenderImage().AsBitmap();
+            });
         }
     }
 }

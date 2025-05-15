@@ -1,43 +1,35 @@
-using QuestPDF.Infrastructure;
 using QuestPDF.Fluent;
-using TheSSS.DICOMViewer.Domain.Models;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+using TheSSS.DICOMViewer.Application.Interfaces.Output;
+using System.IO;
+using System.Threading.Tasks;
 
 namespace TheSSS.DICOMViewer.Infrastructure.OutputGeneration.Services
 {
-    public class PdfGenerationService : IPdfGenerationService
+    public class PdfGenerationService : IPdfGenerator
     {
-        private readonly ILoggerAdapter<PdfGenerationService> _logger;
-
-        public PdfGenerationService(ILoggerAdapter<PdfGenerationService> logger)
+        public async Task GeneratePdfAsync(PdfDocumentContent content, PdfGenerationOptions options, Stream outputStream)
         {
-            _logger = logger;
-        }
-
-        public async Task GeneratePdfAsync(PdfContent content, PdfGenerationOptions options, Stream outputStream)
-        {
-            try
+            var document = Document.Create(container =>
             {
-                var document = Document.Create(container =>
+                container.Page(page =>
                 {
-                    container.Page(page =>
+                    page.Size(PageSizes.A4);
+                    page.Margin(2, Unit.Centimetre);
+                    page.Content().Column(col =>
                     {
-                        page.Content().Column(column =>
+                        foreach (var section in content.Sections)
                         {
-                            foreach (var section in content.Sections)
-                            {
-                                column.Item().Text(section.Title);
-                                column.Item().Image(section.ImageData);
-                            }
-                        });
+                            col.Item().Text(section.Title);
+                            col.Item().Image(section.ImageData);
+                        }
                     });
                 });
+            });
 
-                document.GeneratePdf(outputStream);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "PDF generation failed");
-            }
+            document.GeneratePdf(outputStream);
+            await Task.CompletedTask;
         }
     }
 }

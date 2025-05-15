@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TheSSS.DICOMViewer.Infrastructure.Persistence.Entities;
+using System.Reflection;
 
 namespace TheSSS.DICOMViewer.Infrastructure.Persistence.DbContext
 {
@@ -24,7 +25,8 @@ namespace TheSSS.DICOMViewer.Infrastructure.Persistence.DbContext
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            modelBuilder.ApplyConfigurationsFromAssembly(typeof(DicomDbContext).Assembly);
+            modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+            base.OnModelCreating(modelBuilder);
         }
 
         public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
