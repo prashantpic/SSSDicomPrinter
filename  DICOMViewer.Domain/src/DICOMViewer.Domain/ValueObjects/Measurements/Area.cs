@@ -1,24 +1,19 @@
-using DICOMViewer.Domain.Validation.Measurements;
-using DICOMViewer.Domain.ValueObjects.Measurements;
-
-namespace DICOMViewer.Domain.ValueObjects.Measurements
+namespace TheSSS.DICOMViewer.Domain.ValueObjects.Measurements;
+public readonly record struct Area
 {
-    public readonly record struct Area
+    public MeasurementValue Value { get; }
+
+    private Area(MeasurementValue value)
     {
-        public MeasurementValue Value { get; }
+        if (value.Unit != MeasurementUnit.SquareMillimeters)
+            throw new ArgumentException("Invalid unit for area measurement");
+        
+        Value = value;
+    }
 
-        private Area(MeasurementValue value)
-        {
-            if (value.Unit != MeasurementUnit.SquareMillimeters)
-                throw new ValidationException("Area must be in square millimeters");
-            
-            Value = value;
-        }
-
-        public static Area Create(double value)
-        {
-            var measurement = MeasurementValue.Create(value, MeasurementUnit.SquareMillimeters);
-            return new Area(measurement);
-        }
+    public static Area Create(double value)
+    {
+        var measurementValue = MeasurementValue.Create(value, MeasurementUnit.SquareMillimeters);
+        return new Area(measurementValue);
     }
 }

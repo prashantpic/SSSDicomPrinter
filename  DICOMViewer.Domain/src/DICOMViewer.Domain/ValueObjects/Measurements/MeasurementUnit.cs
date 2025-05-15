@@ -1,9 +1,7 @@
-namespace DICOMViewer.Domain.ValueObjects.Measurements
+namespace TheSSS.DICOMViewer.Domain.ValueObjects.Measurements;
+public enum MeasurementUnit
 {
-    public enum MeasurementUnit
-    {
-        Millimeters,
-        SquareMillimeters,
-        Degrees
-    }
+    Millimeters,
+    SquareMillimeters,
+    Degrees
 }

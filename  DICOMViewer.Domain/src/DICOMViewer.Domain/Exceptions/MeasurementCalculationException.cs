@@ -1,8 +1,6 @@
-namespace DICOMViewer.Domain.Exceptions
+namespace TheSSS.DICOMViewer.Domain.Exceptions;
+public class MeasurementCalculationException : DomainException
 {
-    public class MeasurementCalculationException : DomainException
-    {
-        public MeasurementCalculationException(string message) : base(message) { }
-        public MeasurementCalculationException(string message, Exception inner) : base(message, inner) { }
-    }
+    public MeasurementCalculationException(string message) : base(message) { }
+    public MeasurementCalculationException(string message, Exception inner) : base(message, inner) { }
 }

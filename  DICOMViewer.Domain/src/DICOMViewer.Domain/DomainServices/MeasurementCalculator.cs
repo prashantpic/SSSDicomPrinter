@@ -1,70 +1,60 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using DICOMViewer.Domain.ValueObjects;
-using DICOMViewer.Domain.Exceptions;
+namespace TheSSS.DICOMViewer.Domain.DomainServices;
+using TheSSS.DICOMViewer.Domain.ValueObjects;
+using TheSSS.DICOMViewer.Domain.ValueObjects.Measurements;
+using TheSSS.DICOMViewer.Domain.Exceptions;
 
-namespace DICOMViewer.Domain.DomainServices
+public class MeasurementCalculator
 {
-    public class MeasurementCalculator
+    public Length CalculateLength(ImageCoordinates start, ImageCoordinates end, PixelSpacing spacing)
     {
-        public Length CalculateLength(ImageCoordinates start, ImageCoordinates end, PixelSpacing spacing)
-        {
-            ValidateSpacing(spacing);
-            
-            var dx = (end.X - start.X) * spacing.ColumnSpacing;
-            var dy = (end.Y - start.Y) * spacing.RowSpacing;
-            var length = Math.Sqrt(dx * dx + dy * dy);
-            
-            return Length.Create(length);
-        }
+        if (spacing.RowSpacing <= 0 || spacing.ColumnSpacing <= 0)
+            throw new MeasurementCalculationException("Invalid pixel spacing values");
 
-        public Angle CalculateAngle(ImageCoordinates p1, ImageCoordinates p2, ImageCoordinates p3, PixelSpacing spacing)
-        {
-            ValidateSpacing(spacing);
-            
-            var v1 = ToVector(p1, p2, spacing);
-            var v2 = ToVector(p3, p2, spacing);
-            
-            var dot = v1.X * v2.X + v1.Y * v2.Y;
-            var mag1 = Math.Sqrt(v1.X * v1.X + v1.Y * v1.Y);
-            var mag2 = Math.Sqrt(v2.X * v2.X + v2.Y * v2.Y);
-            
-            var angle = Math.Acos(dot / (mag1 * mag2)) * (180 / Math.PI);
-            return Angle.Create(angle);
-        }
+        double dx = (end.X - start.X) * spacing.ColumnSpacing;
+        double dy = (end.Y - start.Y) * spacing.RowSpacing;
+        double length = Math.Sqrt(dx * dx + dy * dy);
+        
+        return Length.Create(length);
+    }
 
-        public Area CalculateArea(IEnumerable<ImageCoordinates> vertices, PixelSpacing spacing)
-        {
-            ValidateSpacing(spacing);
-            var points = vertices.ToList();
-            if (points.Count < 3)
-                throw new MeasurementCalculationException("At least 3 vertices required for area calculation");
+    public Angle CalculateAngle(ImageCoordinates p1, ImageCoordinates p2, ImageCoordinates p3, PixelSpacing spacing)
+    {
+        if (spacing.RowSpacing <= 0 || spacing.ColumnSpacing <= 0)
+            throw new MeasurementCalculationException("Invalid pixel spacing values");
 
-            double area = 0;
-            for (int i = 0; i < points.Count; i++)
-            {
-                var j = (i + 1) % points.Count;
-                area += points[i].X * points[j].Y;
-                area -= points[i].Y * points[j].X;
-            }
-            area = Math.Abs(area) * 0.5 * spacing.RowSpacing * spacing.ColumnSpacing;
-            
-            return Area.Create(area);
-        }
+        var a = CalculateDistance(p2, p1, spacing);
+        var b = CalculateDistance(p3, p2, spacing);
+        var c = CalculateDistance(p3, p1, spacing);
 
-        private static void ValidateSpacing(PixelSpacing spacing)
-        {
-            if (spacing.RowSpacing <= 0 || spacing.ColumnSpacing <= 0)
-                throw new MeasurementCalculationException("Invalid pixel spacing values");
-        }
+        double angleRad = Math.Acos((a.Value * a.Value + b.Value * b.Value - c.Value * c.Value) 
+                         / (2 * a.Value * b.Value));
+        double angleDeg = angleRad * (180 / Math.PI);
+        
+        return Angle.Create(angleDeg);
+    }
 
-        private (double X, double Y) ToVector(ImageCoordinates from, ImageCoordinates to, PixelSpacing spacing)
+    public Area CalculateArea(IEnumerable<ImageCoordinates> vertices, PixelSpacing spacing)
+    {
+        var points = vertices.ToList();
+        if (points.Count < 3)
+            throw new MeasurementCalculationException("At least 3 vertices required for area calculation");
+
+        double area = 0;
+        for (int i = 0; i < points.Count; i++)
         {
-            return (
-                (to.X - from.X) * spacing.ColumnSpacing,
-                (to.Y - from.Y) * spacing.RowSpacing
-            );
+            var current = points[i];
+            var next = points[(i + 1) % points.Count];
+            area += (current.X * next.Y - next.X * current.Y);
         }
+        area = Math.Abs(area * 0.5 * spacing.RowSpacing * spacing.ColumnSpacing);
+        
+        return Area.Create(area);
+    }
+
+    private static Length CalculateDistance(ImageCoordinates a, ImageCoordinates b, PixelSpacing spacing)
+    {
+        double dx = (b.X - a.X) * spacing.ColumnSpacing;
+        double dy = (b.Y - a.Y) * spacing.RowSpacing;
+        return Length.Create(Math.Sqrt(dx * dx + dy * dy));
     }
 }

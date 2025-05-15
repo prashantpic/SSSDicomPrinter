@@ -1,24 +1,19 @@
-using DICOMViewer.Domain.Validation.Measurements;
-using DICOMViewer.Domain.ValueObjects.Measurements;
-
-namespace DICOMViewer.Domain.ValueObjects.Measurements
+namespace TheSSS.DICOMViewer.Domain.ValueObjects.Measurements;
+public readonly record struct Length
 {
-    public readonly record struct Length
+    public MeasurementValue Value { get; }
+
+    private Length(MeasurementValue value)
     {
-        public MeasurementValue Value { get; }
+        if (value.Unit != MeasurementUnit.Millimeters)
+            throw new ArgumentException("Invalid unit for length measurement");
+        
+        Value = value;
+    }
 
-        private Length(MeasurementValue value)
-        {
-            if (value.Unit != MeasurementUnit.Millimeters)
-                throw new ValidationException("Length must be in millimeters");
-            
-            Value = value;
-        }
-
-        public static Length Create(double value)
-        {
-            var measurement = MeasurementValue.Create(value, MeasurementUnit.Millimeters);
-            return new Length(measurement);
-        }
+    public static Length Create(double value)
+    {
+        var measurementValue = MeasurementValue.Create(value, MeasurementUnit.Millimeters);
+        return new Length(measurementValue);
     }
 }
