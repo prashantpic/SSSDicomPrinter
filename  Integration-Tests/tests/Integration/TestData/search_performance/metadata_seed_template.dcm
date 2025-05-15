@@ -1,0 +1,5 @@
+REM This is a placeholder for a template DICOM file.
+REM It should contain a minimal but valid DICOM structure.
+REM Key tags (PatientName, StudyDate, Modality, UIDs, etc.) will be
+REM programmatically overridden during the test data seeding process
+REM for search performance tests to create a large, varied dataset.
