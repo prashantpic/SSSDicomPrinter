@@ -4,19 +4,14 @@ namespace TheSSS.DicomViewer.Presentation.Services
 {
     public class ThemeManager : IThemeManager
     {
+        private const string DefaultTheme = "Light";
+        private string _currentTheme = DefaultTheme;
+
         public void SetTheme(string themeName)
         {
-            var dict = new ResourceDictionary
-            {
-                Source = new System.Uri($"/Resources/Themes/{themeName}.xaml", System.UriKind.Relative)
-            };
-            Application.Current.Resources.MergedDictionaries.Clear();
-            Application.Current.Resources.MergedDictionaries.Add(dict);
-        }
+            if (_currentTheme == themeName) return;
 
-        public string GetCurrentTheme()
-        {
-            return "Light";
-        }
-    }
-}
+            var resources = Application.Current.Resources;
+            resources.MergedDictionaries.Clear();
+
+            var themeUri =

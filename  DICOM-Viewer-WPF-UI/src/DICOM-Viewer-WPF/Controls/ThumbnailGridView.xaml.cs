@@ -1,6 +1,8 @@
+using System.Windows.Controls;
+
 namespace TheSSS.DicomViewer.Presentation.Controls
 {
-    public partial class ThumbnailGridView
+    public partial class ThumbnailGridView : UserControl
     {
         public ThumbnailGridView()
         {

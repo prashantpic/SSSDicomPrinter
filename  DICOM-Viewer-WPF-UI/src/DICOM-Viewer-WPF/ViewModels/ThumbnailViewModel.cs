@@ -9,5 +9,8 @@ namespace TheSSS.DicomViewer.Presentation.ViewModels
 
         [ObservableProperty]
         private int _instanceNumber;
+
+        [ObservableProperty]
+        private bool _isSelected;
     }
 }

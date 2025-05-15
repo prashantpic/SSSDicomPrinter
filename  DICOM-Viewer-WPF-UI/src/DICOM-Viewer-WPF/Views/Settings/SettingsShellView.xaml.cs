@@ -1,6 +1,8 @@
+using System.Windows.Controls;
+
 namespace TheSSS.DicomViewer.Presentation.Views.Settings
 {
-    public partial class SettingsShellView
+    public partial class SettingsShellView : UserControl
     {
         public SettingsShellView()
         {

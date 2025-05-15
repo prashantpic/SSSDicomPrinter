@@ -14,7 +14,7 @@ namespace TheSSS.DicomViewer.Presentation.Controls
             InitializeComponent();
         }
 
-        private void SKElement_PaintSurface(object sender, SkiaSharp.Views.Desktop.SKPaintSurfaceEventArgs e)
+        private void SKElement_PaintSurface(object sender, SKPaintSurfaceEventArgs e)
         {
             if (DataContext is DicomImageViewModel viewModel)
             {
@@ -24,33 +24,33 @@ namespace TheSSS.DicomViewer.Presentation.Controls
 
         private void Image_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            _lastMousePosition = e.GetPosition(this);
-            CaptureMouse();
+            _lastMousePosition = e.GetPosition(SKElement);
+            SKElement.CaptureMouse();
         }
 
         private void Image_MouseMove(object sender, MouseEventArgs e)
         {
             if (e.LeftButton == MouseButtonState.Pressed && DataContext is DicomImageViewModel viewModel)
             {
-                var currentPosition = e.GetPosition(this);
-                var delta = new Point(currentPosition.X - _lastMousePosition.X, currentPosition.Y - _lastMousePosition.Y);
-                viewModel.UpdatePanZoom(delta, 1.0);
+                var currentPosition = e.GetPosition(SKElement);
+                var delta = currentPosition - _lastMousePosition;
+                viewModel.UpdatePanZoom(delta, 0);
                 _lastMousePosition = currentPosition;
-                skElement.InvalidateVisual();
+                SKElement.InvalidateVisual();
             }
         }
 
         private void Image_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            ReleaseMouseCapture();
+            SKElement.ReleaseMouseCapture();
         }
 
         private void Image_MouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (DataContext is DicomImageViewModel viewModel)
             {
-                viewModel.UpdatePanZoom(new Point(0, 0), e.Delta > 0 ? 1.1 : 0.9);
-                skElement.InvalidateVisual();
+                viewModel.UpdatePanZoom(new Point(0, 0), e.Delta > 0 ? 0.1 : -0.1);
+                SKElement.InvalidateVisual();
             }
         }
     }

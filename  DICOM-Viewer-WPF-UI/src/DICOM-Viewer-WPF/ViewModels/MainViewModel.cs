@@ -1,7 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using TheSSS.DicomViewer.Presentation.Services;
 using System.Collections.ObjectModel;
+using TheSSS.DicomViewer.Presentation.Services;
 
 namespace TheSSS.DicomViewer.Presentation.ViewModels
 {
@@ -10,21 +10,23 @@ namespace TheSSS.DicomViewer.Presentation.ViewModels
         private readonly INavigationService _navigationService;
 
         [ObservableProperty]
+        private ObservableCollection<object> _tabViewModels = new();
+
+        [ObservableProperty]
         private object? _selectedTabViewModel;
 
-        public ObservableCollection<object> TabViewModels { get; } = new();
-
-        public MainViewModel(
-            INavigationService navigationService,
+        public MainViewModel(INavigationService navigationService,
             IncomingPrintQueueTabViewModel incomingPrintQueueTabViewModel,
             LocalStorageTabViewModel localStorageTabViewModel,
             QueryRetrieveTabViewModel queryRetrieveTabViewModel)
         {
             _navigationService = navigationService;
+            
             TabViewModels.Add(incomingPrintQueueTabViewModel);
             TabViewModels.Add(localStorageTabViewModel);
             TabViewModels.Add(queryRetrieveTabViewModel);
-            SelectedTabViewModel = TabViewModels.First();
+            
+            SelectedTabViewModel = TabViewModels.FirstOrDefault();
         }
 
         [RelayCommand]

@@ -1,5 +1,4 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using TheSSS.DicomViewer.Presentation.Services;
 
 namespace TheSSS.DicomViewer.Presentation.ViewModels.Settings.Panels
@@ -14,15 +13,7 @@ namespace TheSSS.DicomViewer.Presentation.ViewModels.Settings.Panels
         public DisplaySettingsPanelViewModel(IThemeManager themeManager)
         {
             _themeManager = themeManager;
-        }
-
-        [RelayCommand]
-        private void ApplyTheme()
-        {
-            if (!string.IsNullOrEmpty(SelectedTheme))
-            {
-                _themeManager.SetTheme(SelectedTheme);
-            }
+            SelectedTheme = _themeManager.GetCurrentTheme();
         }
     }
 }

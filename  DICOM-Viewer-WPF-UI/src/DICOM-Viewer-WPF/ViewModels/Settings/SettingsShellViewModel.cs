@@ -1,16 +1,24 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
+using System.Collections.ObjectModel;
 
 namespace TheSSS.DicomViewer.Presentation.ViewModels.Settings
 {
     public partial class SettingsShellViewModel : ObservableObject
     {
         [ObservableProperty]
+        private ObservableCollection<object> _panelNavigationItems = new();
+
+        [ObservableProperty]
         private object? _currentPanelViewModel;
 
-        [RelayCommand]
-        private void NavigateToPanel(string panelType)
+        public SettingsShellViewModel()
         {
+            InitializeNavigationItems();
+        }
+
+        private void InitializeNavigationItems()
+        {
+            // TODO: Implement navigation items
         }
     }
 }

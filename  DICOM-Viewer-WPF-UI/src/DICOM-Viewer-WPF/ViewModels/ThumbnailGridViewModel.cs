@@ -5,6 +5,10 @@ namespace TheSSS.DicomViewer.Presentation.ViewModels
 {
     public partial class ThumbnailGridViewModel : ObservableObject
     {
-        public ObservableCollection<ThumbnailViewModel> Thumbnails { get; } = new();
+        [ObservableProperty]
+        private ObservableCollection<ThumbnailViewModel> _thumbnails = new();
+
+        [ObservableProperty]
+        private ThumbnailViewModel? _selectedThumbnail;
     }
 }

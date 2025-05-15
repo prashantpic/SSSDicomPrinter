@@ -1,19 +1,25 @@
 using Microsoft.Extensions.DependencyInjection;
-using TheSSS.DicomViewer.Presentation.ViewModels;
-using TheSSS.DicomViewer.Presentation.Services;
 using System.Windows;
+using TheSSS.DicomViewer.Presentation.Services;
+using TheSSS.DicomViewer.Presentation.ViewModels;
+using TheSSS.DicomViewer.Presentation.ViewModels.Tabs;
 
 namespace TheSSS.DicomViewer.Presentation
 {
     public partial class App : Application
     {
-        private readonly ServiceProvider _serviceProvider;
+        private IServiceProvider? _serviceProvider;
 
-        public App()
+        protected override void OnStartup(StartupEventArgs e)
         {
+            base.OnStartup(e);
+            
             var services = new ServiceCollection();
             ConfigureServices(services);
+            
             _serviceProvider = services.BuildServiceProvider();
+            var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
+            mainWindow.Show();
         }
 
         private void ConfigureServices(IServiceCollection services)
@@ -21,21 +27,23 @@ namespace TheSSS.DicomViewer.Presentation
             services.AddSingleton<MainWindow>();
             services.AddSingleton<MainViewModel>();
             
+            services.AddSingleton<INavigationService, NavigationService>();
+            services.AddSingleton<IThemeManager, ThemeManager>();
+            
             services.AddTransient<IncomingPrintQueueTabViewModel>();
             services.AddTransient<LocalStorageTabViewModel>();
             services.AddTransient<QueryRetrieveTabViewModel>();
             
-            services.AddSingleton<INavigationService, NavigationService>();
-            services.AddSingleton<IThemeManager, ThemeManager>();
+            services.AddTransient<DicomImageViewModel>();
+            services.AddTransient<ThumbnailGridViewModel>();
+            services.AddTransient<ThumbnailViewModel>();
+            
             services.AddSingleton<IRenderer<SKCanvas, DicomImageViewModel, SKRect>, DicomPixelDataRenderer>();
-        }
-
-        protected override void OnStartup(StartupEventArgs e)
-        {
-            base.OnStartup(e);
-            var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
-            mainWindow.DataContext = _serviceProvider.GetRequiredService<MainViewModel>();
-            mainWindow.Show();
+            
+            services.AddTransient<SettingsShellViewModel>();
+            services.AddTransient<DisplaySettingsPanelViewModel>();
+            
+            services.AddSingleton<BooleanToVisibilityConverter>();
         }
     }
 }
