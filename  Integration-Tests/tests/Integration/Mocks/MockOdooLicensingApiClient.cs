@@ -1,98 +1,92 @@
-// Assuming interfaces and return types are defined in TheSSS.DicomViewer.Application.Services
-using TheSSS.DicomViewer.Application.Services; // For ILicensingApiClient, LicenseActivationResult, LicenseValidationResult
-using Moq;
-using System.Threading.Tasks;
+using System.Collections.Concurrent;
+using TheSSS.DicomViewer.Application; // Assuming ILicensingApiClient, LicenseActivationResult, LicenseValidationResult are here
+// If result types are in Domain: using TheSSS.DicomViewer.Domain;
 
 namespace TheSSS.DicomViewer.IntegrationTests.Mocks
 {
+    // These would typically be defined in TheSSS.DicomViewer.Application or TheSSS.DicomViewer.Domain
+    // For compilation purposes if not available in this context, define minimal structures:
+    /*
+    namespace TheSSS.DicomViewer.Application
+    {
+        public class LicenseActivationResult
+        {
+            public bool Success { get; set; }
+            public string Message { get; set; }
+            // Add other relevant properties like ActivatedFeatures, ExpiryDate, etc.
+        }
+
+        public class LicenseValidationResult
+        {
+            public bool IsValid { get; set; }
+            public string Message { get; set; }
+            public DateTime? ExpiryDate { get; set; }
+            public bool IsExpired { get; set; }
+            public bool IsInGracePeriod { get; set; }
+            // Add other relevant properties
+        }
+
+        public interface ILicensingApiClient
+        {
+            Task<LicenseActivationResult> ActivateLicenseAsync(string licenseKey, CancellationToken cancellationToken = default);
+            Task<LicenseValidationResult> ValidateLicenseAsync(string licenseKey, CancellationToken cancellationToken = default);
+        }
+    }
+    */
+
+
     public class MockOdooLicensingApiClient : ILicensingApiClient
     {
-        private readonly Mock<ILicensingApiClient> _mock;
+        private readonly ConcurrentDictionary<string, LicenseActivationResult> _activationResponses = new();
+        private readonly ConcurrentDictionary<string, LicenseValidationResult> _validationResponses = new();
 
-        public MockOdooLicensingApiClient()
+        private LicenseActivationResult _defaultActivationResult = new() { Success = false, Message = "Default mock activation failure." };
+        private LicenseValidationResult _defaultValidationResult = new() { IsValid = false, Message = "Default mock validation failure." };
+
+        public Task<LicenseActivationResult> ActivateLicenseAsync(string licenseKey, CancellationToken cancellationToken = default)
         {
-            _mock = new Mock<ILicensingApiClient>();
+            if (_activationResponses.TryGetValue(licenseKey, out var specificResult))
+            {
+                return Task.FromResult(specificResult);
+            }
+            return Task.FromResult(_defaultActivationResult);
         }
 
-        // Expose the internal mock for fine-grained setup in tests if needed
-        public Mock<ILicensingApiClient> Mock => _mock;
-
-        // Implement the interface by calling the internal mock
-        public Task<LicenseActivationResult> ActivateLicenseAsync(string licenseKey)
+        public Task<LicenseValidationResult> ValidateLicenseAsync(string licenseKey, CancellationToken cancellationToken = default)
         {
-            return _mock.Object.ActivateLicenseAsync(licenseKey);
+            if (_validationResponses.TryGetValue(licenseKey, out var specificResult))
+            {
+                return Task.FromResult(specificResult);
+            }
+            return Task.FromResult(_defaultValidationResult);
         }
 
-        public Task<LicenseValidationResult> ValidateLicenseAsync(string licenseKey)
+        public void SetupActivationResponse(string licenseKey, LicenseActivationResult result)
         {
-            return _mock.Object.ValidateLicenseAsync(licenseKey);
+            _activationResponses[licenseKey] = result;
         }
 
-        // Helper methods for common mock setups
-        public void SetupActivateSuccess(string licenseKey, string activatedProduct = "DICOM Viewer Pro")
+        public void SetupValidationResponse(string licenseKey, LicenseValidationResult result)
         {
-            _mock.Setup(m => m.ActivateLicenseAsync(licenseKey))
-                 .ReturnsAsync(new LicenseActivationResult { IsSuccess = true, ErrorMessage = null, ActivatedProduct = activatedProduct });
+            _validationResponses[licenseKey] = result;
         }
 
-        public void SetupActivateFailure(string licenseKey, string errorMessage)
+        public void SetDefaultActivationResponse(LicenseActivationResult result)
         {
-            _mock.Setup(m => m.ActivateLicenseAsync(licenseKey))
-                 .ReturnsAsync(new LicenseActivationResult { IsSuccess = false, ErrorMessage = errorMessage });
+            _defaultActivationResult = result;
         }
 
-        public void SetupValidateValid(string licenseKey, string status = "Active", string? expiryDate = null)
+        public void SetDefaultValidationResponse(LicenseValidationResult result)
         {
-            _mock.Setup(m => m.ValidateLicenseAsync(licenseKey))
-                 .ReturnsAsync(new LicenseValidationResult 
-                 { 
-                     IsValid = true, 
-                     Status = status, 
-                     ExpiryDate = expiryDate ?? System.DateTime.UtcNow.AddYears(1).ToString("yyyy-MM-dd") 
-                 });
+            _defaultValidationResult = result;
         }
 
-        public void SetupValidateInvalid(string licenseKey, string status = "Invalid Key")
+        public void Reset()
         {
-            _mock.Setup(m => m.ValidateLicenseAsync(licenseKey))
-                 .ReturnsAsync(new LicenseValidationResult { IsValid = false, Status = status });
-        }
-
-        public void SetupValidateExpired(string licenseKey, string status = "Expired")
-        {
-            _mock.Setup(m => m.ValidateLicenseAsync(licenseKey))
-                 .ReturnsAsync(new LicenseValidationResult 
-                 { 
-                     IsValid = false, 
-                     Status = status, 
-                     ExpiryDate = System.DateTime.UtcNow.Subtract(System.TimeSpan.FromDays(1)).ToString("yyyy-MM-dd") 
-                 });
-        }
-        
-        public void SetupValidateNearExpiry(string licenseKey, string status = "Near Expiry", int daysToExpiry = 10)
-        {
-            _mock.Setup(m => m.ValidateLicenseAsync(licenseKey))
-                 .ReturnsAsync(new LicenseValidationResult 
-                 { 
-                     IsValid = true, // Still valid but near expiry
-                     Status = status, 
-                     ExpiryDate = System.DateTime.UtcNow.AddDays(daysToExpiry).ToString("yyyy-MM-dd") 
-                 });
-        }
-
-        public void SetupThrowsExceptionOnActivation(string licenseKey, System.Exception exception)
-        {
-            _mock.Setup(m => m.ActivateLicenseAsync(licenseKey)).ThrowsAsync(exception);
-        }
-
-        public void SetupThrowsExceptionOnValidation(string licenseKey, System.Exception exception)
-        {
-            _mock.Setup(m => m.ValidateLicenseAsync(licenseKey)).ThrowsAsync(exception);
-        }
-
-        public void ResetMock()
-        {
-            _mock.Reset();
+            _activationResponses.Clear();
+            _validationResponses.Clear();
+            _defaultActivationResult = new() { Success = false, Message = "Default mock activation failure." };
+            _defaultValidationResult = new() { IsValid = false, Message = "Default mock validation failure." };
         }
     }
 }

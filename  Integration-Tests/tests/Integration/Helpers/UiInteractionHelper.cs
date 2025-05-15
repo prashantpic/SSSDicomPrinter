@@ -1,83 +1,83 @@
 using System;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows.Input; // For ICommand
 
 namespace TheSSS.DicomViewer.IntegrationTests.Helpers
 {
-    public class UiInteractionHelper
+    public static class UiInteractionHelper
     {
-        private readonly IServiceProvider _serviceProvider;
-
-        public UiInteractionHelper(IServiceProvider serviceProvider)
-        {
-            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
-        }
-
-        /// <summary>
-        /// Finds and triggers a command on a ViewModel.
-        /// This method attempts to run the command on the UI thread if a dispatcher is available and configured,
-        /// otherwise executes it directly. For integration tests, direct execution is often preferred.
-        /// </summary>
-        /// <param name="viewModel">The ViewModel instance.</param>
-        /// <param name="commandPropertyName">The name of the ICommand property on the ViewModel (e.g., "LoadDicomFileCommand").</param>
-        /// <param name="commandParameter">The parameter to pass to the command (e.g., file path).</param>
-        /// <returns>A task representing the asynchronous operation.</returns>
-        public async Task TriggerCommandAsync(object viewModel, string commandPropertyName, object? commandParameter = null)
+        public static async Task TriggerImageLoadAsync(object viewModel, string filePath)
         {
             if (viewModel == null) throw new ArgumentNullException(nameof(viewModel));
-            if (string.IsNullOrWhiteSpace(commandPropertyName)) throw new ArgumentNullException(nameof(commandPropertyName));
+            if (string.IsNullOrEmpty(filePath)) throw new ArgumentNullException(nameof(filePath));
 
-            var commandProperty = viewModel.GetType().GetProperty(commandPropertyName, BindingFlags.Public | BindingFlags.Instance);
-            if (commandProperty == null)
+            Type viewModelType = viewModel.GetType();
+
+            // Try to find a command that takes a string (filePath)
+            string[] commandNamesWithParam = { "LoadDicomFileCommand", "LoadFileCommand", "LoadImageCommand", "OpenDicomFileCommand" };
+            foreach (var name in commandNamesWithParam)
             {
-                throw new MissingMemberException($"ViewModel of type {viewModel.GetType().Name} does not have a public instance property named '{commandPropertyName}'.");
+                var commandProperty = viewModelType.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+                if (commandProperty != null && typeof(ICommand).IsAssignableFrom(commandProperty.PropertyType))
+                {
+                    var command = (ICommand)commandProperty.GetValue(viewModel);
+                    if (command != null && command.CanExecute(filePath))
+                    {
+                        var executeResult = command.Execute(filePath);
+                        if (executeResult is Task task)
+                        {
+                            await task;
+                        }
+                        return;
+                    }
+                }
+
+                // Also check for methods like LoadAsync(string filePath)
+                var methodInfo = viewModelType.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(string) }, null) ??
+                                 viewModelType.GetMethod(name + "Async", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(string) }, null);
+
+                if (methodInfo != null)
+                {
+                    var result = methodInfo.Invoke(viewModel, new object[] { filePath });
+                    if (result is Task task)
+                    {
+                        await task;
+                    }
+                    return;
+                }
             }
 
-            if (commandProperty.GetValue(viewModel) is not ICommand command)
+            // Try to find a FilePath property and a parameterless command
+            var filePathProperty = viewModelType.GetProperty("FilePath", BindingFlags.Public | BindingFlags.Instance);
+            if (filePathProperty != null && filePathProperty.CanWrite && filePathProperty.PropertyType == typeof(string))
             {
-                throw new InvalidCastException($"Property '{commandPropertyName}' on ViewModel of type {viewModel.GetType().Name} is not an ICommand.");
+                filePathProperty.SetValue(viewModel, filePath);
+
+                string[] parameterlessCommandNames = { "LoadCommand", "LoadDicomCommand", "LoadImageCommand", "ExecuteLoadCommand" };
+                foreach (var name in parameterlessCommandNames)
+                {
+                    var commandProperty = viewModelType.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+                    if (commandProperty != null && typeof(ICommand).IsAssignableFrom(commandProperty.PropertyType))
+                    {
+                        var command = (ICommand)commandProperty.GetValue(viewModel);
+                        if (command != null && command.CanExecute(null)) // Parameterless command
+                        {
+                            var executeResult = command.Execute(null);
+                            if (executeResult is Task task)
+                            {
+                                await task;
+                            }
+                            return;
+                        }
+                    }
+                }
             }
-
-            if (!command.CanExecute(commandParameter))
-            {
-                throw new InvalidOperationException($"Command '{commandPropertyName}' on ViewModel of type {viewModel.GetType().Name} cannot be executed with the provided parameter (CanExecute returned false).");
-            }
-
-            // Execute the command. Handle both synchronous and asynchronous commands.
-            // For WPF, commands are typically executed on the UI thread.
-            // In integration tests, direct execution might be fine if the command logic itself
-            // doesn't have hard UI thread dependencies not handled by the ViewModel.
-            // If a dispatcher is strictly needed, it would have to be injected or accessed globally (less ideal).
-
-            var executionResult = command.Execute(commandParameter);
-
-            // If the command.Execute() itself returns a Task (e.g., for AsyncRelayCommand from MVVM toolkits),
-            // await its completion.
-            if (executionResult is Task task)
-            {
-                await task;
-            }
-            // Some ICommand implementations might not return Task but still perform async operations internally.
-            // For those, ensure the test awaits a separate signal of completion if needed (e.g., ViewModel property change).
+            
+            throw new InvalidOperationException(
+                $"Could not find a suitable command or method on ViewModel '{viewModelType.Name}' to load file '{filePath}'. " +
+                $"Searched for commands like LoadDicomFileCommand(string), or FilePath property + LoadCommand().");
         }
-
-        /// <summary>
-        /// Triggers the image load command on a ViewModel, simulating user file selection.
-        /// </summary>
-        /// <param name="viewModel">The ViewModel instance (e.g., DicomImageViewerViewModel).</param>
-        /// <param name="filePath">The path to the DICOM file to load.</param>
-        /// <param name="commandName">The name of the command property on the ViewModel. Defaults to "LoadDicomFileCommand".</param>
-        public async Task TriggerImageLoadAsync(object viewModel, string filePath, string commandName = "LoadDicomFileCommand")
-        {
-            if (string.IsNullOrWhiteSpace(filePath)) throw new ArgumentNullException(nameof(filePath));
-            await TriggerCommandAsync(viewModel, commandName, filePath);
-        }
-
-        // Example of a helper for getting a ViewModel (if needed beyond AppHostFixture's GetService)
-        // public TViewModel GetViewModel<TViewModel>() where TViewModel : class
-        // {
-        //     return _serviceProvider.GetRequiredService<TViewModel>();
-        // }
     }
 }
