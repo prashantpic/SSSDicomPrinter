@@ -1,9 +1,6 @@
 using MediatR;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using TheSSS.DICOMViewer.Application.DicomImport.Commands;
 using TheSSS.DICOMViewer.Application.DicomImport.DTOs;
-using TheSSS.DICOMViewer.Application.DicomImport.Interfaces;
 
 namespace TheSSS.DICOMViewer.Application.DicomImport.Services;
 
@@ -18,21 +15,13 @@ public class DicomImportService : IDicomImportService
 
     public async Task<ImportResultDto> ImportFilesAsync(IEnumerable<string> filePaths)
     {
-        var command = new ImportDicomFilesCommand 
-        { 
-            FilePaths = filePaths,
-            IsDirectoryImport = false
-        };
+        var command = new ImportDicomFilesCommand { FilePaths = filePaths };
         return await _mediator.Send(command);
     }
 
     public async Task<ImportResultDto> ImportDirectoryAsync(string directoryPath)
     {
-        var command = new ImportDicomFilesCommand 
-        { 
-            DirectoryPath = directoryPath,
-            IsDirectoryImport = true
-        };
+        var command = new ImportDicomFilesCommand { DirectoryPath = directoryPath };
         return await _mediator.Send(command);
     }
 }

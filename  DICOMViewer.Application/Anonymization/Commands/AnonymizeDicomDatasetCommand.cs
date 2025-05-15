@@ -5,4 +5,5 @@ namespace TheSSS.DICOMViewer.Application.Anonymization.Commands;
 
 public record AnonymizeDicomDatasetCommand(
     string SopInstanceUid,
-    string AnonymizationProfileId) : IRequest<AnonymizationResultDto>;
+    string AnonymizationProfileId
+) : IRequest<AnonymizationResultDto>;
