@@ -1,13 +1,13 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using System.Collections.ObjectModel;
 
-namespace TheSSS.DicomViewer.Presentation.ViewModels
-{
-    public partial class ThumbnailGridViewModel : ObservableObject
-    {
-        public ObservableCollection<ThumbnailViewModel> Thumbnails { get; } = new();
+namespace TheSSS.DicomViewer.Presentation.ViewModels;
 
-        [ObservableProperty]
-        private ThumbnailViewModel _selectedThumbnail;
-    }
+public partial class ThumbnailGridViewModel : ObservableObject
+{
+    [ObservableProperty]
+    private ObservableCollection<ThumbnailViewModel> _thumbnails = new();
+    
+    [ObservableProperty]
+    private ThumbnailViewModel? _selectedThumbnail;
 }

@@ -1,16 +1,15 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace TheSSS.DicomViewer.Presentation.ViewModels
+namespace TheSSS.DicomViewer.Presentation.ViewModels;
+
+public partial class ThumbnailViewModel : ObservableObject
 {
-    public partial class ThumbnailViewModel : ObservableObject
-    {
-        [ObservableProperty]
-        private string _instanceUid;
-
-        [ObservableProperty]
-        private int _instanceNumber;
-
-        [ObservableProperty]
-        private bool _isSelected;
-    }
+    [ObservableProperty]
+    private ImageSource? _thumbnailImage;
+    
+    [ObservableProperty]
+    private int _instanceNumber;
+    
+    [ObservableProperty]
+    private bool _isSelected;
 }

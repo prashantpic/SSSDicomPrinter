@@ -1,10 +1,14 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace TheSSS.DicomViewer.Presentation.ViewModels.Tabs
+namespace TheSSS.DicomViewer.Presentation.ViewModels.Tabs;
+
+public partial class IncomingPrintQueueTabViewModel : ObservableObject
 {
-    public partial class IncomingPrintQueueTabViewModel : ObservableObject
+    [ObservableProperty]
+    private bool _isLoading;
+
+    public IncomingPrintQueueTabViewModel()
     {
-        [ObservableProperty]
-        private string _statusMessage = "Incoming/Print Queue Tab";
+        // Initialize with sample data or service injection
     }
 }

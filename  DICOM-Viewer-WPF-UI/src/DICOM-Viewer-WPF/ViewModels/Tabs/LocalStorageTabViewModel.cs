@@ -1,10 +1,14 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace TheSSS.DicomViewer.Presentation.ViewModels.Tabs
+namespace TheSSS.DicomViewer.Presentation.ViewModels.Tabs;
+
+public partial class LocalStorageTabViewModel : ObservableObject
 {
-    public partial class LocalStorageTabViewModel : ObservableObject
+    [ObservableProperty]
+    private string _searchQuery = string.Empty;
+
+    public LocalStorageTabViewModel()
     {
-        [ObservableProperty]
-        private string _storageStatus = "Local Storage Tab";
+        // Initialize with service dependencies
     }
 }

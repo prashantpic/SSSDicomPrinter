@@ -1,34 +1,33 @@
 using SkiaSharp;
 using TheSSS.DicomViewer.Presentation.ViewModels;
 
-namespace TheSSS.DicomViewer.Presentation.Rendering
+namespace TheSSS.DicomViewer.Presentation.Rendering;
+
+public class DicomPixelDataRenderer : IRenderer
 {
-    public class DicomPixelDataRenderer : IRenderer<SKCanvas, DicomImageViewModel, SKRect>
+    public void Render(object canvasContext, object imageViewModel, object renderParameters)
     {
-        public void Render(SKCanvas canvas, DicomImageViewModel imageViewModel, SKRect destinationRect)
+        if (canvasContext is SKCanvas canvas && 
+            imageViewModel is DicomImageViewModel viewModel && 
+            renderParameters is SKRect destinationRect)
         {
-            if (imageViewModel.PixelData == null) return;
-
-            using var bitmap = new SKBitmap(imageViewModel.ImageWidth, imageViewModel.ImageHeight);
-            bitmap.Pixels = ConvertPixelData(imageViewModel);
+            // Basic rendering implementation
+            using var paint = new SKPaint();
+            using var bitmap = new SKBitmap(viewModel.ImageWidth, viewModel.ImageHeight);
             
-            canvas.Save();
-            canvas.Translate((float)imageViewModel.PanOffset.X, (float)imageViewModel.PanOffset.Y);
-            canvas.Scale((float)imageViewModel.Zoom);
-            canvas.DrawBitmap(bitmap, destinationRect);
-            canvas.Restore();
-        }
-
-        private SKColor[] ConvertPixelData(DicomImageViewModel viewModel)
-        {
-            // Simplified conversion - actual implementation would handle DICOM specifics
-            var pixels = new SKColor[viewModel.ImageWidth * viewModel.ImageHeight];
-            for (int i = 0; i < pixels.Length; i++)
+            if (viewModel.PixelData != null)
             {
-                byte value = viewModel.PixelData[i % viewModel.PixelData.Length];
-                pixels[i] = new SKColor(value, value, value);
+                var pixels = bitmap.Pixels;
+                for (int i = 0; i < viewModel.PixelData.Length; i++)
+                {
+                    // Simplified pixel processing
+                    byte value = viewModel.PixelData[i];
+                    pixels[i] = new SKColor(value, value, value);
+                }
+                bitmap.Pixels = pixels;
             }
-            return pixels;
+            
+            canvas.DrawBitmap(bitmap, destinationRect, paint);
         }
     }
 }

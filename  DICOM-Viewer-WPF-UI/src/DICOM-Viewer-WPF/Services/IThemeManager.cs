@@ -1,8 +1,8 @@
-namespace TheSSS.DicomViewer.Presentation.Services
+namespace TheSSS.DicomViewer.Presentation.Services;
+
+public interface IThemeManager
 {
-    public interface IThemeManager
-    {
-        void SetTheme(string themeName);
-        string GetCurrentTheme();
-    }
+    void SetTheme(string themeName);
+    string GetCurrentTheme();
+    event EventHandler? ThemeChanged;
 }

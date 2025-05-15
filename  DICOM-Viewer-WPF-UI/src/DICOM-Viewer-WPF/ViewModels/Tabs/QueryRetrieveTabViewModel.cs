@@ -1,10 +1,14 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace TheSSS.DicomViewer.Presentation.ViewModels.Tabs
+namespace TheSSS.DicomViewer.Presentation.ViewModels.Tabs;
+
+public partial class QueryRetrieveTabViewModel : ObservableObject
 {
-    public partial class QueryRetrieveTabViewModel : ObservableObject
+    [ObservableProperty]
+    private string _pacsQuery = string.Empty;
+
+    public QueryRetrieveTabViewModel()
     {
-        [ObservableProperty]
-        private string _queryStatus = "Query/Retrieve Tab";
+        // Initialize with service dependencies
     }
 }
