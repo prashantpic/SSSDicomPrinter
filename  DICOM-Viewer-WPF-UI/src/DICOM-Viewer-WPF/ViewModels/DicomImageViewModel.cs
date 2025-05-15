@@ -1,21 +1,12 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using System.Threading.Tasks;
+using SkiaSharp;
+using TheSSS.DicomViewer.Presentation.Rendering;
 
 namespace TheSSS.DicomViewer.Presentation.ViewModels
 {
     public partial class DicomImageViewModel : ObservableObject
     {
-        [ObservableProperty]
-        private byte[]? _pixelData;
-
-        [ObservableProperty]
-        private int _imageWidth;
-
-        [ObservableProperty]
-        private int _imageHeight;
-
-        [ObservableProperty]
-        private string _photometricInterpretation = string.Empty;
+        private readonly IRenderer<SKCanvas, DicomImageViewModel, SKRect> _renderer;
 
         [ObservableProperty]
         private double _windowWidth = 400;
@@ -23,15 +14,26 @@ namespace TheSSS.DicomViewer.Presentation.ViewModels
         [ObservableProperty]
         private double _windowLevel = 50;
 
-        public async Task LoadImageAsync(string filePath)
+        [ObservableProperty]
+        private double _zoom = 1.0;
+
+        [ObservableProperty]
+        private Point _panOffset = new(0, 0);
+
+        public DicomImageViewModel(IRenderer<SKCanvas, DicomImageViewModel, SKRect> renderer)
         {
-            await Task.CompletedTask; // Implement DICOM loading
+            _renderer = renderer;
         }
 
-        public void ApplyWindowLevel(double newWidth, double newLevel)
+        public void Render(SKCanvas canvas, SKRect destinationRect)
         {
-            WindowWidth = newWidth;
-            WindowLevel = newLevel;
+            _renderer.Render(canvas, this, destinationRect);
+        }
+
+        public void UpdatePanZoom(Point panDelta, double zoomDelta)
+        {
+            PanOffset = new Point(PanOffset.X + panDelta.X, PanOffset.Y + panDelta.Y);
+            Zoom *= zoomDelta;
         }
     }
 }

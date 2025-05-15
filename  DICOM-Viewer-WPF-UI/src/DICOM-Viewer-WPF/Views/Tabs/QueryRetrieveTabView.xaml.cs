@@ -1,8 +1,6 @@
-using System.Windows.Controls;
-
 namespace TheSSS.DicomViewer.Presentation.Views.Tabs
 {
-    public partial class QueryRetrieveTabView : UserControl
+    public partial class QueryRetrieveTabView
     {
         public QueryRetrieveTabView()
         {

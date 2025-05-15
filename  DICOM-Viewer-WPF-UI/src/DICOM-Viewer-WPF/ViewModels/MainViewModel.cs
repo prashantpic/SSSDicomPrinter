@@ -1,24 +1,36 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using Microsoft.Extensions.DependencyInjection;
+using CommunityToolkit.Mvvm.Input;
+using TheSSS.DicomViewer.Presentation.Services;
 using System.Collections.ObjectModel;
 
 namespace TheSSS.DicomViewer.Presentation.ViewModels
 {
     public partial class MainViewModel : ObservableObject
     {
-        [ObservableProperty]
-        private ObservableCollection<object> _tabViewModels = new();
+        private readonly INavigationService _navigationService;
 
         [ObservableProperty]
         private object? _selectedTabViewModel;
 
-        public MainViewModel(IServiceProvider serviceProvider)
+        public ObservableCollection<object> TabViewModels { get; } = new();
+
+        public MainViewModel(
+            INavigationService navigationService,
+            IncomingPrintQueueTabViewModel incomingPrintQueueTabViewModel,
+            LocalStorageTabViewModel localStorageTabViewModel,
+            QueryRetrieveTabViewModel queryRetrieveTabViewModel)
         {
-            TabViewModels.Add(serviceProvider.GetRequiredService<IncomingPrintQueueTabViewModel>());
-            TabViewModels.Add(serviceProvider.GetRequiredService<LocalStorageTabViewModel>());
-            TabViewModels.Add(serviceProvider.GetRequiredService<QueryRetrieveTabViewModel>());
-            
-            SelectedTabViewModel = TabViewModels.FirstOrDefault();
+            _navigationService = navigationService;
+            TabViewModels.Add(incomingPrintQueueTabViewModel);
+            TabViewModels.Add(localStorageTabViewModel);
+            TabViewModels.Add(queryRetrieveTabViewModel);
+            SelectedTabViewModel = TabViewModels.First();
+        }
+
+        [RelayCommand]
+        private void OpenSettings()
+        {
+            _navigationService.NavigateTo<SettingsShellViewModel>();
         }
     }
 }

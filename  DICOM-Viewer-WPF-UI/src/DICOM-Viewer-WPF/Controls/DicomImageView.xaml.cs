@@ -1,36 +1,57 @@
+using SkiaSharp.Views.WPF;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
-using SkiaSharp.Views.Desktop;
+using TheSSS.DicomViewer.Presentation.ViewModels;
 
 namespace TheSSS.DicomViewer.Presentation.Controls
 {
-    public partial class DicomImageView : UserControl
+    public partial class DicomImageView
     {
+        private Point _lastMousePosition;
+
         public DicomImageView()
         {
             InitializeComponent();
         }
 
-        private void SkElement_PaintSurface(object sender, SKPaintSurfaceEventArgs e)
+        private void SKElement_PaintSurface(object sender, SkiaSharp.Views.Desktop.SKPaintSurfaceEventArgs e)
         {
-            var canvas = e.Surface.Canvas;
-            canvas.Clear(SKColors.Black);
+            if (DataContext is DicomImageViewModel viewModel)
+            {
+                viewModel.Render(e.Surface.Canvas, e.Info.Rect);
+            }
         }
 
-        private void SkElement_MouseWheel(object sender, MouseWheelEventArgs e)
+        private void Image_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            // Handle zoom logic
+            _lastMousePosition = e.GetPosition(this);
+            CaptureMouse();
         }
 
-        private void SkElement_MouseMove(object sender, MouseEventArgs e)
+        private void Image_MouseMove(object sender, MouseEventArgs e)
         {
-            // Handle pan logic
+            if (e.LeftButton == MouseButtonState.Pressed && DataContext is DicomImageViewModel viewModel)
+            {
+                var currentPosition = e.GetPosition(this);
+                var delta = new Point(currentPosition.X - _lastMousePosition.X, currentPosition.Y - _lastMousePosition.Y);
+                viewModel.UpdatePanZoom(delta, 1.0);
+                _lastMousePosition = currentPosition;
+                skElement.InvalidateVisual();
+            }
         }
 
-        private void SkElement_MouseDown(object sender, MouseButtonEventArgs e)
+        private void Image_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            // Handle interaction start
+            ReleaseMouseCapture();
+        }
+
+        private void Image_MouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (DataContext is DicomImageViewModel viewModel)
+            {
+                viewModel.UpdatePanZoom(new Point(0, 0), e.Delta > 0 ? 1.1 : 0.9);
+                skElement.InvalidateVisual();
+            }
         }
     }
 }

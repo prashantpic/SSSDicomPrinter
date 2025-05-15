@@ -1,32 +1,22 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using System.Collections.ObjectModel;
-using System.Threading.Tasks;
+using TheSSS.DicomViewer.Presentation.Services.Application;
 
 namespace TheSSS.DicomViewer.Presentation.ViewModels.Tabs
 {
     public partial class LocalStorageTabViewModel : ObservableObject
     {
-        [ObservableProperty]
-        private ObservableCollection<object> _localStudies = new();
+        private readonly IDicomSearchService _dicomSearchService;
 
-        [ObservableProperty]
-        private string _searchTerm = string.Empty;
-
-        [ObservableProperty]
-        private ThumbnailGridViewModel _thumbnailGridViewModel;
+        public LocalStorageTabViewModel(IDicomSearchService dicomSearchService)
+        {
+            _dicomSearchService = dicomSearchService;
+        }
 
         [RelayCommand]
         private async Task SearchStudiesAsync()
         {
-            await Task.Delay(100); // Simulate search delay
-            // Update LocalStudies with filtered results
-        }
-
-        public LocalStorageTabViewModel()
-        {
-            _thumbnailGridViewModel = new ThumbnailGridViewModel();
-            LocalStudies.Add(new { StudyId = "STD001", PatientName = "John Doe", StudyDate = "2024-03-01" });
+            await _dicomSearchService.SearchLocalStudiesAsync();
         }
     }
 }

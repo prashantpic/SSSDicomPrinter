@@ -1,5 +1,4 @@
 using System.Windows;
-using System.Linq;
 
 namespace TheSSS.DicomViewer.Presentation.Services
 {
@@ -7,19 +6,17 @@ namespace TheSSS.DicomViewer.Presentation.Services
     {
         public void SetTheme(string themeName)
         {
-            var themeDict = new ResourceDictionary
+            var dict = new ResourceDictionary
             {
-                Source = new Uri($"/TheSSS.DicomViewer.Presentation;component/Resources/Themes/{themeName}Theme.xaml", UriKind.Relative)
+                Source = new System.Uri($"/Resources/Themes/{themeName}.xaml", System.UriKind.Relative)
             };
-
             Application.Current.Resources.MergedDictionaries.Clear();
-            Application.Current.Resources.MergedDictionaries.Add(themeDict);
+            Application.Current.Resources.MergedDictionaries.Add(dict);
         }
 
         public string GetCurrentTheme()
         {
-            return Application.Current.Resources.MergedDictionaries
-                .FirstOrDefault()?.Source?.ToString()?.Split('/').Last()?.Split('T').First() ?? "Light";
+            return "Light";
         }
     }
 }

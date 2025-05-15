@@ -9,26 +9,20 @@ namespace TheSSS.DicomViewer.Presentation.ViewModels.Settings.Panels
         private readonly IThemeManager _themeManager;
 
         [ObservableProperty]
-        private string _selectedTheme;
-
-        [ObservableProperty]
-        private bool _highContrastEnabled;
+        private string? _selectedTheme;
 
         public DisplaySettingsPanelViewModel(IThemeManager themeManager)
         {
             _themeManager = themeManager;
-            SelectedTheme = _themeManager.GetCurrentTheme();
-            ApplyThemeCommand = new RelayCommand(ApplyTheme);
         }
 
         [RelayCommand]
         private void ApplyTheme()
         {
-            _themeManager.SetTheme(SelectedTheme);
+            if (!string.IsNullOrEmpty(SelectedTheme))
+            {
+                _themeManager.SetTheme(SelectedTheme);
+            }
         }
-
-        public RelayCommand ApplyThemeCommand { get; }
-        
-        public List<string> AvailableThemes => new List<string> { "Light", "Dark" };
     }
 }

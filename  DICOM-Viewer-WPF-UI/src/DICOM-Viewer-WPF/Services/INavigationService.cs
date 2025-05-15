@@ -2,8 +2,8 @@ namespace TheSSS.DicomViewer.Presentation.Services
 {
     public interface INavigationService
     {
-        void NavigateTo(Type viewModelType);
-        void NavigateTo(Type viewModelType, object parameter);
+        void NavigateTo<TViewModel>() where TViewModel : class;
+        void NavigateTo<TViewModel>(object parameter) where TViewModel : class;
         void GoBack();
     }
 }

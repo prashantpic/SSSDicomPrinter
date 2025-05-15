@@ -1,30 +1,22 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using System.Collections.ObjectModel;
-using System.Threading.Tasks;
+using TheSSS.DicomViewer.Presentation.Services.Application;
 
 namespace TheSSS.DicomViewer.Presentation.ViewModels.Tabs
 {
     public partial class IncomingPrintQueueTabViewModel : ObservableObject
     {
-        [ObservableProperty]
-        private ObservableCollection<object> _printQueueItems = new();
+        private readonly IPrintOrchestrationService _printService;
 
-        [ObservableProperty]
-        private bool _isProcessing;
-
-        [RelayCommand]
-        private async Task ProcessSelectedItemsAsync()
+        public IncomingPrintQueueTabViewModel(IPrintOrchestrationService printService)
         {
-            IsProcessing = true;
-            await Task.Delay(1000); // Simulate processing
-            IsProcessing = false;
+            _printService = printService;
         }
 
-        public IncomingPrintQueueTabViewModel()
+        [RelayCommand]
+        private async Task RefreshQueueAsync()
         {
-            // Initialize with sample data
-            PrintQueueItems.Add(new { StudyId = "STD001", PatientName = "John Doe", Status = "Pending" });
+            await _printService.RefreshPrintQueueAsync();
         }
     }
 }

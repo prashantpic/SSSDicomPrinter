@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using System;
 
 namespace TheSSS.DicomViewer.Presentation.Services
 {
@@ -12,20 +11,17 @@ namespace TheSSS.DicomViewer.Presentation.Services
             _serviceProvider = serviceProvider;
         }
 
-        public void NavigateTo(Type viewModelType)
+        public void NavigateTo<TViewModel>() where TViewModel : class
         {
-            var viewModel = _serviceProvider.GetRequiredService(viewModelType);
-            // Implementation would depend on navigation framework
+            var viewModel = _serviceProvider.GetRequiredService<TViewModel>();
         }
 
-        public void NavigateTo(Type viewModelType, object parameter)
+        public void NavigateTo<TViewModel>(object parameter) where TViewModel : class
         {
-            throw new NotImplementedException();
         }
 
         public void GoBack()
         {
-            throw new NotImplementedException();
         }
     }
 }
