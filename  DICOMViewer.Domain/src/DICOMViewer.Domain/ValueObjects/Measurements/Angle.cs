@@ -1,19 +1,20 @@
 namespace TheSSS.DICOMViewer.Domain.ValueObjects.Measurements;
-public readonly record struct Angle
+
+public record struct Angle
 {
-    public MeasurementValue Value { get; }
+    public double Value { get; }
+    public MeasurementUnit Unit { get; }
 
-    private Angle(MeasurementValue value)
+    private Angle(double value, MeasurementUnit unit)
     {
-        if (value.Unit != MeasurementUnit.Degrees)
-            throw new ArgumentException("Invalid unit for angle measurement");
-        
         Value = value;
+        Unit = unit;
     }
 
-    public static Angle Create(double value)
+    public static Angle FromDegrees(double value)
     {
-        var measurementValue = MeasurementValue.Create(value, MeasurementUnit.Degrees);
-        return new Angle(measurementValue);
+        return new Angle(value, MeasurementUnit.Degrees);
     }
+
+    public override string ToString() => $"{Value:F1}°";
 }

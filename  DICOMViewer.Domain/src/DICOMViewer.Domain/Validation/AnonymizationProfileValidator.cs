@@ -1,16 +1,13 @@
-namespace TheSSS.DICOMViewer.Domain.Validation;
 using FluentValidation;
 using TheSSS.DICOMViewer.Domain.Aggregates.AnonymizationProfileAggregate;
+
+namespace TheSSS.DICOMViewer.Domain.Validation;
 
 public class AnonymizationProfileValidator : AbstractValidator<AnonymizationProfile>
 {
     public AnonymizationProfileValidator()
     {
-        RuleFor(x => x.ProfileName)
-            .NotEmpty()
-            .MaximumLength(100);
-
-        RuleForEach(x => x.Rules)
-            .SetValidator(new MetadataAnonymizationRuleValidator());
+        RuleFor(p => p.ProfileName).NotEmpty().MaximumLength(100);
+        RuleForEach(p => p.Rules).SetValidator(new MetadataAnonymizationRuleValidator());
     }
 }

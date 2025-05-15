@@ -1,19 +1,23 @@
 namespace TheSSS.DICOMViewer.Domain.ValueObjects.Measurements;
-public readonly record struct Area
+
+public record struct Area
 {
-    public MeasurementValue Value { get; }
+    public double Value { get; }
+    public MeasurementUnit Unit { get; }
 
-    private Area(MeasurementValue value)
+    private Area(double value, MeasurementUnit unit)
     {
-        if (value.Unit != MeasurementUnit.SquareMillimeters)
-            throw new ArgumentException("Invalid unit for area measurement");
-        
         Value = value;
+        Unit = unit;
     }
 
-    public static Area Create(double value)
+    public static Area FromSquareMillimeters(double value)
     {
-        var measurementValue = MeasurementValue.Create(value, MeasurementUnit.SquareMillimeters);
-        return new Area(measurementValue);
+        if (value < 0)
+            throw new MeasurementCalculationException("Area cannot be negative");
+
+        return new Area(value, MeasurementUnit.SquareMillimeters);
     }
+
+    public override string ToString() => $"{Value:F2} mm²";
 }

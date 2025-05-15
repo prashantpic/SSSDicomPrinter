@@ -1,19 +1,23 @@
 namespace TheSSS.DICOMViewer.Domain.ValueObjects.Measurements;
-public readonly record struct Length
+
+public record struct Length
 {
-    public MeasurementValue Value { get; }
+    public double Value { get; }
+    public MeasurementUnit Unit { get; }
 
-    private Length(MeasurementValue value)
+    private Length(double value, MeasurementUnit unit)
     {
-        if (value.Unit != MeasurementUnit.Millimeters)
-            throw new ArgumentException("Invalid unit for length measurement");
-        
         Value = value;
+        Unit = unit;
     }
 
-    public static Length Create(double value)
+    public static Length FromMillimeters(double value)
     {
-        var measurementValue = MeasurementValue.Create(value, MeasurementUnit.Millimeters);
-        return new Length(measurementValue);
+        if (value < 0)
+            throw new MeasurementCalculationException("Length cannot be negative");
+
+        return new Length(value, MeasurementUnit.Millimeters);
     }
+
+    public override string ToString() => $"{Value:F2} {Unit}";
 }
