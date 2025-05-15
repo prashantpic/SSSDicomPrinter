@@ -1,0 +1,14 @@
+global using System;
+global using System.Collections.Generic;
+global using System.Linq;
+global using System.Threading.Tasks;
+global using FluentValidation;
+global using DICOMViewer.Domain.ValueObjects;
+global using DICOMViewer.Domain.Exceptions;
+global using DICOMViewer.Domain.Interfaces;
+global using DICOMViewer.Domain.Aggregates.PatientAggregate;
+global using DICOMViewer.Domain.Aggregates.StudyAggregate;
+global using DICOMViewer.Domain.Aggregates.StudyAggregate.Entities;
+global using DICOMViewer.Domain.Aggregates.StudyAggregate.ValueObjects;
+global using DICOMViewer.Domain.Aggregates.AnonymizationProfileAggregate;
+global using DICOMViewer.Domain.Aggregates.AnonymizationProfileAggregate.Rules;
