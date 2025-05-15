@@ -1,124 +1,93 @@
 using MediatR;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Activities;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Contracts.Events;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Exceptions;
 using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Interfaces;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Sagas.State;
-using Microsoft.Extensions.Logging;
 
 namespace TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Sagas;
 
-public class AnonymizeDicomWorkflowSaga : IRequestHandler<StartDicomAnonymizationWorkflowCommand>
+public class AnonymizeDicomWorkflowSaga
 {
     private readonly IWorkflowStateRepository _stateRepository;
-    private readonly IMediator _mediator;
     private readonly IAnonymizationServiceAdapter _anonymizationService;
     private readonly IAuditLoggerAdapter _auditLogger;
-    private readonly ILogger<AnonymizeDicomWorkflowSaga> _logger;
+    private readonly IMediator _mediator;
 
     public AnonymizeDicomWorkflowSaga(
         IWorkflowStateRepository stateRepository,
-        IMediator mediator,
         IAnonymizationServiceAdapter anonymizationService,
         IAuditLoggerAdapter auditLogger,
-        ILogger<AnonymizeDicomWorkflowSaga> logger)
+        IMediator mediator)
     {
         _stateRepository = stateRepository;
-        _mediator = mediator;
         _anonymizationService = anonymizationService;
         _auditLogger = auditLogger;
-        _logger = logger;
+        _mediator = mediator;
     }
 
-    public async Task Handle(StartDicomAnonymizationWorkflowCommand request, CancellationToken cancellationToken)
+    public async Task HandleStartCommand(StartDicomAnonymizationWorkflowCommand command)
     {
-        var workflowId = Guid.NewGuid().ToString();
-        var initialState = new AnonymizationWorkflowState
+        var state = new AnonymizationWorkflowState
         {
-            WorkflowId = workflowId,
-            SopInstanceUids = request.SopInstanceUids,
-            AnonymizationProfileId = request.AnonymizationProfileId,
-            Status = WorkflowStatus.Running,
-            StartTime = DateTime.UtcNow
+            WorkflowId = command.WorkflowId,
+            StudyId = command.StudyId,
+            AnonymizationProfileId = command.AnonymizationProfileId,
+            Status = "Initializing"
         };
 
+        await _stateRepository.SaveStateAsync(state);
+        await AnonymizeStudy(state);
+    }
+
+    private async Task AnonymizeStudy(AnonymizationWorkflowState state)
+    {
+        state.Status = "Processing";
+        await _stateRepository.SaveStateAsync(state);
+
         try
         {
-            await _stateRepository.SaveStateAsync(workflowId, initialState);
-            await _mediator.Publish(new WorkflowStartedEvent(workflowId), cancellationToken);
+            var result = await _anonymizationService.AnonymizeStudyAsync(
+                state.StudyId,
+                state.AnonymizationProfileId,
+                state.WorkflowId,
+                CancellationToken.None);
 
-            var activities = new IWorkflowActivity<AnonymizationWorkflowState>[] {
-                new LoadDicomDatasetActivity(_anonymizationService),
-                new ApplyAnonymizationActivity(_anonymizationService),
-                new SaveAnonymizedDatasetActivity(_anonymizationService),
-                new LogAnonymizationActivity(_auditLogger)
-            };
-
-            foreach (var activity in activities)
+            if (result.Success)
             {
-                initialState = await ExecuteActivity(initialState, activity, cancellationToken);
+                await LogSuccess(state);
+                await _mediator.Publish(new WorkflowCompletedEvent(state.WorkflowId, DateTime.UtcNow));
             }
-
-            await CompleteWorkflow(initialState);
+            else
+            {
+                throw new WorkflowExecutionException($"Anonymization failed: {result.ErrorMessage}");
+            }
         }
         catch (Exception ex)
         {
-            await HandleWorkflowFailure(initialState, ex);
+            await HandleFailure(state, ex);
+            throw;
         }
     }
 
-    private async Task<AnonymizationWorkflowState> ExecuteActivity(
-        AnonymizationWorkflowState state,
-        IWorkflowActivity<AnonymizationWorkflowState> activity,
-        CancellationToken cancellationToken)
+    private async Task LogSuccess(AnonymizationWorkflowState state)
     {
-        try
-        {
-            var result = await activity.ExecuteAsync(state, cancellationToken);
-            state.CurrentStep = activity.GetType().Name;
-            state.LastUpdated = DateTime.UtcNow;
-            await _stateRepository.SaveStateAsync(state.WorkflowId, state);
-            return state;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Activity {Activity} failed in workflow {WorkflowId}", activity.GetType().Name, state.WorkflowId);
-            throw new WorkflowExecutionException($"Activity {activity.GetType().Name} failed", ex);
-        }
+        await _auditLogger.LogAuditEventAsync(
+            "AnonymizationComplete",
+            $"Study {state.StudyId} anonymized with profile {state.AnonymizationProfileId}",
+            null,
+            state.StudyId,
+            null,
+            state.WorkflowId,
+            null);
     }
 
-    private async Task CompleteWorkflow(AnonymizationWorkflowState state)
+    private async Task HandleFailure(AnonymizationWorkflowState state, Exception ex)
     {
-        state.Status = WorkflowStatus.Completed;
-        state.CompletionTime = DateTime.UtcNow;
-        await _stateRepository.SaveStateAsync(state.WorkflowId, state);
-        await _mediator.Publish(new WorkflowCompletedEvent(state.WorkflowId, state.CompletionTime.Value));
-    }
-
-    private async Task HandleWorkflowFailure(AnonymizationWorkflowState state, Exception ex)
-    {
-        state.Status = WorkflowStatus.Failed;
-        state.ErrorDetails = ex.ToString();
-        state.CompletionTime = DateTime.UtcNow;
+        state.Status = "Failed";
+        await _stateRepository.SaveStateAsync(state);
         
-        await _stateRepository.SaveStateAsync(state.WorkflowId, state);
-        await _mediator.Publish(new WorkflowFailedEvent(state.WorkflowId, ex));
-        await CompensateFailedWorkflow(state);
-    }
-
-    private async Task CompensateFailedWorkflow(AnonymizationWorkflowState state)
-    {
-        try
-        {
-            if (state.AnonymizedInstances.Any())
-            {
-                await _anonymizationService.RollbackAnonymizationAsync(state.OriginalInstances);
-            }
-            _logger.LogInformation("Compensation completed for workflow {WorkflowId}", state.WorkflowId);
-        }
-        catch (Exception compensationEx)
-        {
-            _logger.LogError(compensationEx, "Compensation failed for workflow {WorkflowId}", state.WorkflowId);
-        }
+        await _mediator.Publish(new WorkflowFailedEvent(
+            state.WorkflowId,
+            DateTime.UtcNow,
+            ex.Message,
+            ex.ToString(),
+            "Anonymization"));
     }
 }

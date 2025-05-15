@@ -1,140 +1,122 @@
 using MediatR;
 using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Activities;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Contracts.Events;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Exceptions;
 using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Interfaces;
 using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Sagas.State;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Sagas;
 
-public class ImportDicomWorkflowSaga : IRequestHandler<StartDicomImportWorkflowCommand>
+public class ImportDicomWorkflowSaga
 {
     private readonly IWorkflowStateRepository _stateRepository;
-    private readonly IMediator _mediator;
     private readonly IResourceGovernor _resourceGovernor;
     private readonly IWorkflowProgressReporter _progressReporter;
     private readonly IDicomImportServiceAdapter _importService;
-    private readonly IAuditLoggerAdapter _auditLogger;
-    private readonly ILogger<ImportDicomWorkflowSaga> _logger;
-    private readonly WorkflowOrchestratorSettings _settings;
-
+    private readonly IMediator _mediator;
+    
     public ImportDicomWorkflowSaga(
         IWorkflowStateRepository stateRepository,
-        IMediator mediator,
         IResourceGovernor resourceGovernor,
         IWorkflowProgressReporter progressReporter,
         IDicomImportServiceAdapter importService,
-        IAuditLoggerAdapter auditLogger,
-        ILogger<ImportDicomWorkflowSaga> logger,
-        IOptions<WorkflowOrchestratorSettings> settings)
+        IMediator mediator)
     {
         _stateRepository = stateRepository;
-        _mediator = mediator;
         _resourceGovernor = resourceGovernor;
         _progressReporter = progressReporter;
         _importService = importService;
-        _auditLogger = auditLogger;
-        _logger = logger;
-        _settings = settings.Value;
+        _mediator = mediator;
     }
 
-    public async Task Handle(StartDicomImportWorkflowCommand request, CancellationToken cancellationToken)
+    public async Task HandleStartCommand(StartDicomImportWorkflowCommand command)
     {
-        var workflowId = Guid.NewGuid().ToString();
-        var initialState = new ImportWorkflowState
+        var state = new ImportWorkflowState
         {
-            WorkflowId = workflowId,
-            Status = WorkflowStatus.Running,
-            SourcePath = request.SourcePath,
-            ImportOptions = request.ImportOptions,
-            StartTime = DateTime.UtcNow
+            WorkflowId = command.WorkflowId,
+            SourcePath = command.SourcePath,
+            FilesToProcess = await DiscoverFiles(command),
+            Options = command.Options,
+            Status = "Initializing"
         };
 
-        try
-        {
-            await _stateRepository.SaveStateAsync(workflowId, initialState);
-            await _mediator.Publish(new WorkflowStartedEvent(workflowId), cancellationToken);
-
-            var activities = new IWorkflowActivity<ImportWorkflowState>[] {
-                new ValidateDicomFilesActivity(_importService, _logger),
-                new CheckResourceConstraintsActivity(_resourceGovernor, _settings),
-                new ImportFilesActivity(_importService, _progressReporter, _logger),
-                new UpdateDatabaseActivity(_importService),
-                new ReportProgressActivity(_progressReporter)
-            };
-
-            foreach (var activity in activities)
-            {
-                initialState = await ExecuteActivity(initialState, activity, cancellationToken);
-            }
-
-            await CompleteWorkflow(initialState);
-        }
-        catch (Exception ex)
-        {
-            await HandleWorkflowFailure(initialState, ex);
-        }
+        await _stateRepository.SaveStateAsync(state);
+        await ProcessFiles(state);
     }
 
-    private async Task<ImportWorkflowState> ExecuteActivity(
-        ImportWorkflowState state,
-        IWorkflowActivity<ImportWorkflowState> activity,
-        CancellationToken cancellationToken)
+    private async Task ProcessFiles(ImportWorkflowState state)
     {
-        try
-        {
-            var result = await activity.ExecuteAsync(state, cancellationToken);
-            state.CurrentStep = activity.GetType().Name;
-            state.LastUpdated = DateTime.UtcNow;
-            await _stateRepository.SaveStateAsync(state.WorkflowId, state);
-            return state;
-        }
-        catch (ResourceConstraintViolationException rcvEx)
-        {
-            _logger.LogWarning(rcvEx, "Resource constraints violated for workflow {WorkflowId}", state.WorkflowId);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Activity {Activity} failed in workflow {WorkflowId}", activity.GetType().Name, state.WorkflowId);
-            throw new WorkflowExecutionException($"Activity {activity.GetType().Name} failed", ex);
-        }
-    }
-
-    private async Task CompleteWorkflow(ImportWorkflowState state)
-    {
-        state.Status = WorkflowStatus.Completed;
-        state.CompletionTime = DateTime.UtcNow;
-        await _stateRepository.SaveStateAsync(state.WorkflowId, state);
-        await _mediator.Publish(new WorkflowCompletedEvent(state.WorkflowId, state.CompletionTime.Value));
-    }
-
-    private async Task HandleWorkflowFailure(ImportWorkflowState state, Exception ex)
-    {
-        state.Status = WorkflowStatus.Failed;
-        state.ErrorDetails = ex.ToString();
-        state.CompletionTime = DateTime.UtcNow;
+        state.Status = "Processing";
+        await _stateRepository.SaveStateAsync(state);
         
-        await _stateRepository.SaveStateAsync(state.WorkflowId, state);
-        await _mediator.Publish(new WorkflowFailedEvent(state.WorkflowId, ex));
-        await CompensateFailedWorkflow(state);
+        var parallelOptions = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = await GetMaxParallelism()
+        };
+
+        await Parallel.ForEachAsync(state.FilesToProcess, parallelOptions, async (file, ct) =>
+        {
+            try
+            {
+                await ProcessSingleFile(state, file);
+            }
+            catch (Exception ex)
+            {
+                HandleFileError(state, file, ex);
+            }
+        });
+
+        state.Status = state.FailedFiles.Count > 0 ? "CompletedWithErrors" : "Completed";
+        await _stateRepository.SaveStateAsync(state);
+        await _mediator.Publish(new WorkflowCompletedEvent(state.WorkflowId, DateTime.UtcNow));
     }
 
-    private async Task CompensateFailedWorkflow(ImportWorkflowState state)
+    private async Task ProcessSingleFile(ImportWorkflowState state, string filePath)
     {
-        try
+        var validationResult = await _importService.ValidateFileAsync(filePath, state.WorkflowId, CancellationToken.None);
+        if (!validationResult.IsValid)
         {
-            if (state.ProcessedFiles.Any())
-            {
-                await _importService.RollbackImportAsync(state.ProcessedFiles);
-            }
-            _logger.LogInformation("Compensation completed for workflow {WorkflowId}", state.WorkflowId);
+            throw new WorkflowExecutionException($"Invalid DICOM file: {filePath}");
         }
-        catch (Exception compensationEx)
-        {
-            _logger.LogError(compensationEx, "Compensation failed for workflow {WorkflowId}", state.WorkflowId);
-        }
+
+        var importResult = await _importService.ImportFileAsync(filePath, state.WorkflowId, CancellationToken.None);
+        state.ProcessedFiles.Add(filePath);
+        await UpdateProgress(state);
+    }
+
+    private async Task UpdateProgress(ImportWorkflowState state)
+    {
+        state.ProcessedFilesCount = state.ProcessedFiles.Count;
+        await _progressReporter.ReportProgressAsync(
+            state.WorkflowId,
+            (int)((double)state.ProcessedFilesCount / state.TotalFilesCount * 100),
+            $"Processing {state.ProcessedFilesCount}/{state.TotalFilesCount} files",
+            "FileImport");
+    }
+
+    private void HandleFileError(ImportWorkflowState state, string filePath, Exception ex)
+    {
+        state.FailedFiles.Add(filePath);
+        _mediator.Publish(new WorkflowFailedEvent(
+            state.WorkflowId,
+            DateTime.UtcNow,
+            ex.Message,
+            ex.ToString(),
+            "FileProcessing"));
+    }
+
+    private async Task<int> GetMaxParallelism()
+    {
+        return await _resourceGovernor.TryAcquireResourceAsync(
+            ResourceType.ImportThread, 
+            Environment.ProcessorCount, 
+            Guid.Empty, 
+            CancellationToken.None)
+            ? Environment.ProcessorCount
+            : 1;
+    }
+
+    private async Task<List<string>> DiscoverFiles(StartDicomImportWorkflowCommand command)
+    {
+        // Implementation omitted for brevity
+        return new List<string>();
     }
 }

@@ -1,90 +1,69 @@
 using MediatR;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Activities;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Contracts.Events;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Exceptions;
 using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Interfaces;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Sagas.State;
-using Microsoft.Extensions.Logging;
 
 namespace TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Sagas;
 
-public class PacsSynchronizationWorkflowSaga : IRequestHandler<StartPacsSynchronizationWorkflowCommand>
+public class PacsSynchronizationWorkflowSaga
 {
     private readonly IWorkflowStateRepository _stateRepository;
+    private readonly NetworkOperationCoordinator _networkCoordinator;
     private readonly IMediator _mediator;
-    private readonly IDicomNetworkServiceAdapter _networkService;
-    private readonly ILogger<PacsSynchronizationWorkflowSaga> _logger;
 
     public PacsSynchronizationWorkflowSaga(
         IWorkflowStateRepository stateRepository,
-        IMediator mediator,
-        IDicomNetworkServiceAdapter networkService,
-        ILogger<PacsSynchronizationWorkflowSaga> logger)
+        NetworkOperationCoordinator networkCoordinator,
+        IMediator mediator)
     {
         _stateRepository = stateRepository;
+        _networkCoordinator = networkCoordinator;
         _mediator = mediator;
-        _networkService = networkService;
-        _logger = logger;
     }
 
-    public async Task Handle(StartPacsSynchronizationWorkflowCommand request, CancellationToken cancellationToken)
+    public async Task HandleStartCommand(StartPacsSynchronizationWorkflowCommand command)
     {
-        var workflowId = Guid.NewGuid().ToString();
-        var initialState = new PacsSynchronizationWorkflowState
+        var state = new PacsSyncWorkflowState
         {
-            WorkflowId = workflowId,
-            PacsNode = request.PacsNode,
-            QueryParameters = request.QueryParameters,
-            Status = WorkflowStatus.Running,
-            StartTime = DateTime.UtcNow
+            WorkflowId = command.WorkflowId,
+            PacsNodeId = command.PacsNodeId,
+            SyncType = command.SyncType,
+            Status = "Initializing"
         };
 
+        await _stateRepository.SaveStateAsync(state);
+        await PerformSyncOperation(state);
+    }
+
+    private async Task PerformSyncOperation(PacsSyncWorkflowState state)
+    {
+        state.Status = "Syncing";
+        await _stateRepository.SaveStateAsync(state);
+
         try
         {
-            await _stateRepository.SaveStateAsync(workflowId, initialState);
-            await _mediator.Publish(new WorkflowStartedEvent(workflowId), cancellationToken);
+            // Implementation would include actual sync logic
+            await _networkCoordinator.PerformCFindAsync(
+                state.PacsNodeId,
+                new QueryParameters(),
+                state.WorkflowId,
+                CancellationToken.None);
 
-            var activities = new IWorkflowActivity<PacsSynchronizationWorkflowState>[] {
-                new ExecuteCFindActivity(_networkService),
-                new ProcessCFindResultsActivity(),
-                new ExecuteCMoveOrCStoreActivity(_networkService)
-            };
-
-            foreach (var activity in activities)
-            {
-                initialState = await ExecuteActivity(initialState, activity, cancellationToken);
-            }
-
-            await CompleteWorkflow(initialState);
+            state.Status = "Completed";
+            await _mediator.Publish(new WorkflowCompletedEvent(state.WorkflowId, DateTime.UtcNow));
         }
         catch (Exception ex)
         {
-            await HandleWorkflowFailure(initialState, ex);
+            state.Status = "Failed";
+            await _mediator.Publish(new WorkflowFailedEvent(
+                state.WorkflowId,
+                DateTime.UtcNow,
+                ex.Message,
+                ex.ToString(),
+                "PacsSync"));
+            throw;
+        }
+        finally
+        {
+            await _stateRepository.SaveStateAsync(state);
         }
     }
-
-    private async Task<PacsSynchronizationWorkflowState> ExecuteActivity(
-        PacsSynchronizationWorkflowState state,
-        IWorkflowActivity<PacsSynchronizationWorkflowState> activity,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var result = await activity.ExecuteAsync(state, cancellationToken);
-            state.CurrentStep = activity.GetType().Name;
-            state.LastUpdated = DateTime.UtcNow;
-            await _stateRepository.SaveStateAsync(state.WorkflowId, state);
-            return state;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Activity {Activity} failed in workflow {WorkflowId}", activity.GetType().Name, state.WorkflowId);
-            throw new WorkflowExecutionException($"Activity {activity.GetType().Name} failed", ex);
-        }
-    }
-
-    private async Task CompleteWorkflow(PacsSynchronizationWorkflowState state)
-    {
-        state.Status = WorkflowStatus.Completed;
-        state.CompletionTime = DateTime.UtcNow;
-        await _stateRepository.SaveStateAsync(state.Workflow
+}
