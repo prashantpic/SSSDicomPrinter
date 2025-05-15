@@ -1,63 +1,39 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework> <!-- Target Windows for Windows.Devices.Printers -->
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>12.0</LangVersion>
-    <Description>Acts as unified facade for external service integrations required by multiple features. Coordinates Odoo API calls, SMTP operations, Windows Print API, and DICOM network communications. Implements circuit breaker patterns, request batching, and unified error handling across all external service calls. Manages API rate limiting and credential rotation for integrated services.</Description>
-    <PackageId>TheSSS.DICOMViewer.Integration.ServiceGateway</PackageId>
-    <Version>1.0.0</Version>
-    <Authors>TheSSS</Authors>
-    <Company>TheSSS</Company>
-    <RepositoryUrl>https://your-repo-url/ServiceIntegrationGateway</RepositoryUrl>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <IncludeSymbols>true</IncludeSymbols>
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <Deterministic>true</Deterministic>
-    <!-- UseWPF is false as this is a library and we prefer P/Invoke or specific Windows SDKs if headless. -->
-    <!-- For System.Drawing.Printing, if net8.0-windows is not used, System.Drawing.Common might be needed. -->
-    <!-- Microsoft.AspNetCore.App is a heavy framework reference if only System.Drawing.Common is needed. -->
-    <!-- Consider <PackageReference Include="System.Drawing.Common" Version="8.0.0" /> if System.Drawing.Printing is used -->
-    <!-- and the library must target net8.0 instead of net8.0-windows. -->
-    <!-- However, Windows Print API implies Windows deployment. -->
+    <AssemblyName>TheSSS.DICOMViewer.Integration</AssemblyName>
+    <RootNamespace>TheSSS.DICOMViewer.Integration</RootNamespace>
+    <OutputType>Library</OutputType> <!-- This is a class library -->
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Official .NET Extensions for DI and Configuration -->
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.0" />
-
-    <!-- Resilience Library -->
-    <PackageReference Include="Polly" Version="8.4.1" /> 
-    <!-- Polly.Extensions.Http is often used with AddHttpClient, but Polly core is sufficient for general use -->
-    <!-- <PackageReference Include="Polly.Extensions.Http" Version="3.0.0" /> --> 
-
-    <!-- HTTP Client for Odoo -->
+    <!-- External NuGet Package Dependencies -->
+    <PackageReference Include="Polly" Version="8.2.0" />
     <PackageReference Include="RestSharp" Version="110.2.0" />
-
-    <!-- Rate Limiting -->
-    <PackageReference Include="System.Threading.RateLimiting" Version="8.0.0" />
-
-    <!-- Windows Print API Support -->
-    <!-- If using System.Drawing.Printing on net8.0 (not net8.0-windows), System.Drawing.Common is needed. -->
-    <!-- It's now a Windows-specific package. For a library, it's better if the app targets netX.0-windows. -->
-    <!-- If this library must remain net8.0, and use System.Drawing.Printing: -->
-    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
-    <!-- If using Windows.Devices.Printers (UWP APIs), specific SDK targeting is needed: -->
-    <!-- <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.22621.2428" /> -->
-    <!-- Ensure the project targets Windows if using Windows.Devices.Printers, e.g., <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework> -->
-
+    
+    <!-- Microsoft Extensions for Dependency Injection, Configuration, Options, Logging -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+    <!-- System.Threading.RateLimiting is built into .NET 8, no separate package needed -->
+    <!-- System.Net.Http is built into .NET 8 -->
+    <!-- Windows.Devices.Printers is accessible via the Windows TFM -->
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Dependencies on other repositories -->
-    <!-- Adjust relative paths as per your solution structure -->
-    <ProjectReference Include="..\..\..\Infrastructure\src\Infrastructure\DICOMViewer.Infrastructure.csproj" /> <!-- For IDicomLowLevelClient -->
-    <ProjectReference Include="..\..\..\CrossCutting\src\CrossCutting\DICOMViewer.Common.csproj" /> <!-- For ILoggerAdapter and ISecureStorageService -->
+    <!-- Project Dependencies (assuming relative paths and names) -->
+    <!-- Adjust Path and Name if REPO-INFRA has a different project file name or location -->
+    <ProjectReference Include="..\Infrastructure\TheSSS.DICOMViewer.Infrastructure.csproj" />
+    
+    <!-- Adjust Path and Name if REPO-CROSS-CUTTING has a different project file name or location -->
+    <ProjectReference Include="..\CrossCutting\TheSSS.DICOMViewer.CrossCutting.csproj" />
   </ItemGroup>
 
 </Project>
