@@ -4,8 +4,7 @@ public enum OverallHealthStatus
 {
     Healthy,
     Warning,
-    Error,
-    Unknown
+    Error
 }
 
 public class HealthReportDto

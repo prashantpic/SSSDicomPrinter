@@ -1,5 +1,7 @@
 namespace TheSSS.DICOMViewer.Monitoring.Configuration;
 
+using System;
+
 public class MonitoringOptions
 {
     public const string SectionName = "Monitoring";

@@ -1,5 +1,7 @@
 namespace TheSSS.DICOMViewer.Monitoring.Configuration;
 
+using System;
+
 public class AlertRule
 {
     public string RuleName { get; set; } = string.Empty;

@@ -1,5 +1,7 @@
 namespace TheSSS.DICOMViewer.Monitoring.Configuration;
 
+using System.Collections.Generic;
+
 public class AlertingOptions
 {
     public const string SectionName = "Alerting";

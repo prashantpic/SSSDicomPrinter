@@ -1,7 +1,9 @@
 namespace TheSSS.DICOMViewer.Monitoring.Exceptions;
 
-[System.Serializable]
-public class MonitoringOrchestratorException : System.Exception
+using System;
+
+[Serializable]
+public class MonitoringOrchestratorException : Exception
 {
     public MonitoringOrchestratorException() { }
     public MonitoringOrchestratorException(string message) : base(message) { }
