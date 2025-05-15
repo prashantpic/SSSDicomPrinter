@@ -1,0 +1,34 @@
+<UserControl x:Class="TheSSS.DICOMViewer.Presentation.Views.Controls.DicomImageView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:skia="http://schemas.skiasharp.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:TheSSS.DICOMViewer.Presentation.ViewModels"
+             mc:Ignorable="d" 
+             d:DesignHeight="450" d:DesignWidth="800">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <skia:SKElement x:Name="SkiaElement" 
+                        PaintSurface="SKElement_PaintSurface"
+                        Grid.Row="0"/>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center">
+            <Button Content="{DynamicResource PreviousFrame}" 
+                    Command="{Binding PreviousFrameCommand}"
+                    Margin="5" Padding="10 2"/>
+            
+            <Slider Minimum="0" Maximum="{Binding TotalFrames}"
+                    Value="{Binding CurrentFrameIndex}"
+                    Width="200" Margin="5"/>
+
+            <Button Content="{DynamicResource NextFrame}" 
+                    Command="{Binding NextFrameCommand}"
+                    Margin="5" Padding="10 2"/>
+        </StackPanel>
+    </Grid>
+</UserControl>
