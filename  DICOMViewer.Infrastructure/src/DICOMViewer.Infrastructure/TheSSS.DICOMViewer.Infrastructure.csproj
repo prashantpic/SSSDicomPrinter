@@ -3,7 +3,6 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RootNamespace>TheSSS.DICOMViewer.Infrastructure</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,7 +12,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="fo-dicom.NetCore" Version="5.0.3" />
-    <PackageReference Include="QuestPDF" Version="2023.11.0" />
+    <PackageReference Include="QuestPDF" Version="2023.12.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />

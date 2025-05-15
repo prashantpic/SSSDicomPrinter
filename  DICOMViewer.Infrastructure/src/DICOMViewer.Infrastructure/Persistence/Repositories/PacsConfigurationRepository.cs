@@ -4,51 +4,45 @@ using TheSSS.DICOMViewer.Infrastructure.Persistence.Entities;
 
 namespace TheSSS.DICOMViewer.Infrastructure.Persistence.Repositories
 {
-    public class PacsConfigurationRepository
+    public class PacsConfigurationRepository : IPacsConfigurationRepository
     {
-        private readonly DicomDbContext _context;
+        private readonly DicomDbContext _dbContext;
 
-        public PacsConfigurationRepository(DicomDbContext context)
+        public PacsConfigurationRepository(DicomDbContext dbContext)
         {
-            _context = context;
+            _dbContext = dbContext;
         }
 
-        public async Task<PacsConfigurationDbo?> GetByIdAsync(int id)
+        public async Task<PacsConfigurationDbo> GetByIdAsync(int id)
         {
-            return await _context.PacsConfigurations.FindAsync(id);
+            return await _dbContext.PacsConfigurations.FindAsync(id);
         }
 
         public async Task<IEnumerable<PacsConfigurationDbo>> GetAllAsync()
         {
-            return await _context.PacsConfigurations.ToListAsync();
+            return await _dbContext.PacsConfigurations.ToListAsync();
         }
 
-        public async Task AddAsync(PacsConfigurationDbo configuration)
+        public async Task AddAsync(PacsConfigurationDbo entity)
         {
-            await _context.PacsConfigurations.AddAsync(configuration);
-            await _context.SaveChangesAsync();
+            await _dbContext.PacsConfigurations.AddAsync(entity);
+            await _dbContext.SaveChangesAsync();
         }
 
-        public async Task UpdateAsync(PacsConfigurationDbo configuration)
+        public async Task UpdateAsync(PacsConfigurationDbo entity)
         {
-            _context.PacsConfigurations.Update(configuration);
-            await _context.SaveChangesAsync();
+            _dbContext.PacsConfigurations.Update(entity);
+            await _dbContext.SaveChangesAsync();
         }
 
         public async Task DeleteAsync(int id)
         {
-            var config = await GetByIdAsync(id);
-            if (config != null)
+            var entity = await GetByIdAsync(id);
+            if (entity != null)
             {
-                _context.PacsConfigurations.Remove(config);
-                await _context.SaveChangesAsync();
+                _dbContext.PacsConfigurations.Remove(entity);
+                await _dbContext.SaveChangesAsync();
             }
-        }
-
-        public async Task<PacsConfigurationDbo?> GetByAeTitleAsync(string aeTitle)
-        {
-            return await _context.PacsConfigurations
-                .FirstOrDefaultAsync(p => p.AeTitle == aeTitle);
         }
     }
 }
