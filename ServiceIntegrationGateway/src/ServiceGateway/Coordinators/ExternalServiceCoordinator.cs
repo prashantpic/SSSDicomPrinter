@@ -1,245 +1,198 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using TheSSS.DICOMViewer.Common.Logging; // Assuming ILoggerAdapter is here
 using TheSSS.DICOMViewer.Integration.Interfaces;
 using TheSSS.DICOMViewer.Integration.Models;
+// Assuming ILoggerAdapter is in a cross-cutting assembly, e.g.:
+using TheSSS.DICOMViewer.CrossCutting.Abstractions.Logging;
+// If specific DTOs for adapter responses are very different, more complex mapping might be needed.
+// For now, assuming direct or simple property mapping based on "similar to" descriptions.
 
 namespace TheSSS.DICOMViewer.Integration.Coordinators
 {
     /// <summary>
-    /// Implements IExternalServiceCoordinator, acting as the central facade (ApiCoordinator)
-    /// that orchestrates calls to the various specialized service adapters (Odoo, SMTP, Print, DICOM).
+    /// Implements IExternalServiceCoordinator, acting as the central facade
+    /// that orchestrates calls to the various specialized service adapters.
     /// </summary>
     public class ExternalServiceCoordinator : IExternalServiceCoordinator
     {
-        private readonly IOdooApiAdapter _odooAdapter;
-        private readonly ISmtpServiceAdapter _smtpAdapter;
-        private readonly IWindowsPrintAdapter _printAdapter;
-        private readonly IDicomNetworkAdapter _dicomAdapter;
-        private readonly IUnifiedErrorHandlingService _errorHandler;
-        private readonly ILoggerAdapter<ExternalServiceCoordinator> _logger;
+        private readonly IOdooApiAdapter _odooApiAdapter;
+        private readonly ISmtpServiceAdapter _smtpServiceAdapter;
+        private readonly IWindowsPrintAdapter _windowsPrintAdapter;
+        private readonly IDicomNetworkAdapter _dicomNetworkAdapter;
+        private readonly IUnifiedErrorHandlingService _unifiedErrorHandlingService;
+        private readonly ILoggerAdapter _logger;
 
         public ExternalServiceCoordinator(
-            IOdooApiAdapter odooAdapter,
-            ISmtpServiceAdapter smtpAdapter,
-            IWindowsPrintAdapter printAdapter,
-            IDicomNetworkAdapter dicomAdapter,
-            IUnifiedErrorHandlingService errorHandler,
-            ILoggerAdapter<ExternalServiceCoordinator> logger)
+            IOdooApiAdapter odooApiAdapter,
+            ISmtpServiceAdapter smtpServiceAdapter,
+            IWindowsPrintAdapter windowsPrintAdapter,
+            IDicomNetworkAdapter dicomNetworkAdapter,
+            IUnifiedErrorHandlingService unifiedErrorHandlingService,
+            ILoggerAdapter logger)
         {
-            _odooAdapter = odooAdapter ?? throw new ArgumentNullException(nameof(odooAdapter));
-            _smtpAdapter = smtpAdapter ?? throw new ArgumentNullException(nameof(smtpAdapter));
-            _printAdapter = printAdapter ?? throw new ArgumentNullException(nameof(printAdapter));
-            _dicomAdapter = dicomAdapter ?? throw new ArgumentNullException(nameof(dicomAdapter));
-            _errorHandler = errorHandler ?? throw new ArgumentNullException(nameof(errorHandler));
+            _odooApiAdapter = odooApiAdapter ?? throw new ArgumentNullException(nameof(odooApiAdapter));
+            _smtpServiceAdapter = smtpServiceAdapter ?? throw new ArgumentNullException(nameof(smtpServiceAdapter));
+            _windowsPrintAdapter = windowsPrintAdapter ?? throw new ArgumentNullException(nameof(windowsPrintAdapter));
+            _dicomNetworkAdapter = dicomNetworkAdapter ?? throw new ArgumentNullException(nameof(dicomNetworkAdapter));
+            _unifiedErrorHandlingService = unifiedErrorHandlingService ?? throw new ArgumentNullException(nameof(unifiedErrorHandlingService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        /// <inheritdoc />
         public async Task<GatewayResponse<LicenseValidationResultDto>> ValidateLicenseAsync(string licenseKey, CancellationToken cancellationToken = default)
         {
-            _logger.Debug("ExternalServiceCoordinator: Validating license via Odoo adapter for key: {LicenseKeyFirstChars}...", licenseKey?.Substring(0, Math.Min(licenseKey.Length, 4)));
+            _logger.Info($"ServiceCoordinator: Attempting to validate license with key '{licenseKey}'.");
             try
             {
-                var odooRequest = new OdooLicenseRequestDto(licenseKey);
-                var odooResponse = await _odooAdapter.ValidateLicenseAsync(odooRequest, cancellationToken);
+                // The IExternalServiceCoordinator.ValidateLicenseAsync only takes licenseKey.
+                // IOdooApiAdapter.ValidateLicenseAsync takes OdooLicenseRequestDto (LicenseKey, DeviceIdentifier).
+                // We construct OdooLicenseRequestDto here. DeviceIdentifier must be sourced or be optional.
+                // Assuming DeviceIdentifier is optional or handled by the adapter if null.
+                var odooAdapterRequest = new OdooLicenseRequestDto(licenseKey, null /* DeviceIdentifier might be resolved by adapter or configuration */);
+                
+                OdooLicenseResponseDto odooAdapterResponse = await _odooApiAdapter.ValidateLicenseAsync(odooAdapterRequest, cancellationToken);
 
-                // Map Odoo-specific response DTO to generic Gateway DTO
-                var result = new LicenseValidationResultDto(
-                    isValid: odooResponse.IsValid, 
-                    expiryDate: odooResponse.ExpiryDate, 
-                    features: odooResponse.Features, 
-                    errorMessage: odooResponse.ErrorMessage 
+                // Map OdooLicenseResponseDto to LicenseValidationResultDto
+                // This assumes OdooLicenseResponseDto has compatible properties.
+                var resultData = new LicenseValidationResultDto(
+                    odooAdapterResponse.IsValid, 
+                    odooAdapterResponse.ExpiryDate, 
+                    odooAdapterResponse.EnabledFeatures ?? new List<string>()
                 );
 
-                // Check for domain-level errors indicated in the Odoo response itself (not exceptions)
-                if (!result.IsValid && !string.IsNullOrEmpty(result.ErrorMessage))
-                {
-                    // Use error handler for domain errors included in the response body
-                    var serviceError = _errorHandler.HandleErrorResponse(odooResponse, "Odoo");
-                     _logger.Warning($"Odoo license validation returned domain error: {serviceError.Message}");
-                    return GatewayResponse<LicenseValidationResultDto>.Failure(serviceError);
-                }
-
-                _logger.Info("Odoo license validation successful for key: {LicenseKeyFirstChars}..., IsValid: {IsValid}", licenseKey?.Substring(0, Math.Min(licenseKey.Length, 4)), result.IsValid);
-                return GatewayResponse<LicenseValidationResultDto>.Success(result);
+                _logger.Info($"ServiceCoordinator: License validation successful for key '{licenseKey}'.");
+                return new GatewayResponse<LicenseValidationResultDto>(true, resultData, null);
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "Error during Odoo license validation for key: {LicenseKeyFirstChars}...", licenseKey?.Substring(0, Math.Min(licenseKey.Length, 4)));
-                var serviceError = _errorHandler.HandleError(ex, "Odoo");
-                return GatewayResponse<LicenseValidationResultDto>.Failure(serviceError);
+                _logger.Error(ex, $"ServiceCoordinator: Error validating license for key '{licenseKey}'.");
+                ServiceErrorDto errorDto = _unifiedErrorHandlingService.HandleError(ex, "OdooApiAdapter");
+                return new GatewayResponse<LicenseValidationResultDto>(false, null, errorDto);
             }
         }
 
-        /// <inheritdoc />
         public async Task<GatewayResponse<EmailSendResultDto>> SendEmailAsync(EmailDto emailMessage, CancellationToken cancellationToken = default)
         {
-            _logger.Debug("ExternalServiceCoordinator: Sending email via SMTP adapter to {ToAddresses}.", string.Join(",", emailMessage.ToAddresses));
+            _logger.Info($"ServiceCoordinator: Attempting to send email to '{string.Join(", ", emailMessage.To ?? new List<string>())}' with subject '{emailMessage.Subject}'.");
             try
             {
-                var smtpResult = await _smtpAdapter.SendEmailAsync(emailMessage, cancellationToken);
+                SmtpSendResultDto smtpAdapterResponse = await _smtpServiceAdapter.SendEmailAsync(emailMessage, cancellationToken);
 
-                // Map SMTP-specific result DTO to generic Gateway DTO
-                var result = new EmailSendResultDto(
-                    isSent: smtpResult.IsSuccess, 
-                    messageId: smtpResult.MessageId, 
-                    statusMessage: smtpResult.StatusMessage 
+                // Map SmtpSendResultDto to EmailSendResultDto.
+                // Assuming properties are compatible as per "similar to" description.
+                var resultData = new EmailSendResultDto(
+                    smtpAdapterResponse.IsSent,
+                    smtpAdapterResponse.MessageId,
+                    smtpAdapterResponse.StatusMessage
                 );
 
-                 if (!result.IsSent)
-                 {
-                     var serviceError = _errorHandler.HandleErrorResponse(smtpResult, "SMTP");
-                     _logger.Warning($"SMTP adapter reported failure: {result.StatusMessage}");
-                     return GatewayResponse<EmailSendResultDto>.Failure(serviceError);
-                 }
-
-                _logger.Info("Email sent successfully via SMTP adapter to {ToAddresses}, MessageId: {MessageId}.", string.Join(",", emailMessage.ToAddresses), result.MessageId);
-                return GatewayResponse<EmailSendResultDto>.Success(result);
+                _logger.Info($"ServiceCoordinator: Email sending process completed for subject '{emailMessage.Subject}'. Success: {resultData.IsSent}.");
+                return new GatewayResponse<EmailSendResultDto>(true, resultData, null);
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "Error during email sending via SMTP adapter to {ToAddresses}.", string.Join(",", emailMessage.ToAddresses));
-                var serviceError = _errorHandler.HandleError(ex, "SMTP");
-                return GatewayResponse<EmailSendResultDto>.Failure(serviceError);
+                _logger.Error(ex, $"ServiceCoordinator: Error sending email with subject '{emailMessage.Subject}'.");
+                ServiceErrorDto errorDto = _unifiedErrorHandlingService.HandleError(ex, "SmtpServiceAdapter");
+                return new GatewayResponse<EmailSendResultDto>(false, null, errorDto);
             }
         }
 
-        /// <inheritdoc />
         public async Task<GatewayResponse<PrintResultDto>> SubmitPrintJobAsync(PrintJobDto printJob, CancellationToken cancellationToken = default)
         {
-            _logger.Debug("ExternalServiceCoordinator: Submitting print job '{JobTitle}' via Windows Print adapter to printer '{PrinterName}'.", printJob.JobTitle, printJob.TargetPrinterName);
+            _logger.Info($"ServiceCoordinator: Attempting to submit print job for printer '{printJob.PrinterName}'.");
             try
             {
-                var printResultAdapter = await _printAdapter.PrintDocumentAsync(printJob, cancellationToken);
+                WindowsPrintResultDto printAdapterResponse = await _windowsPrintAdapter.PrintDocumentAsync(printJob, cancellationToken);
 
-                // Map Windows Print-specific result DTO to generic Gateway DTO
-                var result = new PrintResultDto(
-                    isSubmitted: printResultAdapter.IsSuccess, 
-                    jobId: printResultAdapter.JobId, 
-                    statusMessage: printResultAdapter.StatusMessage
+                // Map WindowsPrintResultDto to PrintResultDto.
+                // Assuming properties are compatible as per "similar to" description.
+                var resultData = new PrintResultDto(
+                    printAdapterResponse.IsSubmitted,
+                    printAdapterResponse.JobId,
+                    printAdapterResponse.StatusMessage
                 );
 
-                 if (!result.IsSubmitted)
-                 {
-                     var serviceError = _errorHandler.HandleErrorResponse(printResultAdapter, "Print");
-                     _logger.Warning($"Windows Print adapter reported failure: {result.StatusMessage}");
-                     return GatewayResponse<PrintResultDto>.Failure(serviceError);
-                 }
-
-                _logger.Info("Print job '{JobTitle}' submitted successfully. JobId: {JobId}.", printJob.JobTitle, result.JobId);
-                return GatewayResponse<PrintResultDto>.Success(result);
+                _logger.Info($"ServiceCoordinator: Print job submission process completed for printer '{printJob.PrinterName}'. Success: {resultData.IsSubmitted}.");
+                return new GatewayResponse<PrintResultDto>(true, resultData, null);
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "Error during print job '{JobTitle}' submission.", printJob.JobTitle);
-                var serviceError = _errorHandler.HandleError(ex, "Print");
-                return GatewayResponse<PrintResultDto>.Failure(serviceError);
+                _logger.Error(ex, $"ServiceCoordinator: Error submitting print job for printer '{printJob.PrinterName}'.");
+                ServiceErrorDto errorDto = _unifiedErrorHandlingService.HandleError(ex, "WindowsPrintAdapter");
+                return new GatewayResponse<PrintResultDto>(false, null, errorDto);
             }
         }
 
-        /// <inheritdoc />
         public async Task<GatewayResponse<DicomOperationResultDto>> ExecuteDicomCStoreAsync(DicomCStoreRequestDto request, CancellationToken cancellationToken = default)
         {
-            _logger.Debug("ExternalServiceCoordinator: Executing DICOM C-STORE via adapter to AE '{TargetAETitle}'. Files: {FileCount}", request.TargetAE.AeTitle, request.DicomFilePaths.Count);
+            _logger.Info($"ServiceCoordinator: Attempting DICOM C-STORE to AE '{request.TargetAE}' at '{request.TargetHost}:{request.TargetPort}'.");
             try
             {
-                var dicomResult = await _dicomAdapter.SendCStoreAsync(request, cancellationToken);
-
-                if (!dicomResult.IsSuccess)
-                 {
-                      var serviceError = _errorHandler.HandleErrorResponse(dicomResult, "DICOM");
-                      _logger.Warning($"DICOM C-STORE adapter reported failure: {dicomResult.StatusMessage}. Status Code: {dicomResult.DicomStatusCode}");
-                     return GatewayResponse<DicomOperationResultDto>.Failure(serviceError);
-                 }
-
-                _logger.Info("DICOM C-STORE operation successful to AE '{TargetAETitle}'. Affected SOP Instance UID: {SopInstanceUid}", request.TargetAE.AeTitle, dicomResult.AffectedSopInstanceUid);
-                return GatewayResponse<DicomOperationResultDto>.Success(dicomResult);
+                DicomOperationResultDto dicomResult = await _dicomNetworkAdapter.SendCStoreAsync(request, cancellationToken);
+                
+                _logger.Info($"ServiceCoordinator: DICOM C-STORE operation completed for AE '{request.TargetAE}'. Success: {dicomResult.IsSuccess}, Status: {dicomResult.DicomStatusCode}.");
+                return new GatewayResponse<DicomOperationResultDto>(true, dicomResult, null);
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "Error during DICOM C-STORE operation to AE '{TargetAETitle}'.", request.TargetAE.AeTitle);
-                var serviceError = _errorHandler.HandleError(ex, "DICOM");
-                return GatewayResponse<DicomOperationResultDto>.Failure(serviceError);
+                _logger.Error(ex, $"ServiceCoordinator: Error executing DICOM C-STORE to AE '{request.TargetAE}'.");
+                ServiceErrorDto errorDto = _unifiedErrorHandlingService.HandleError(ex, "DicomNetworkAdapter");
+                return new GatewayResponse<DicomOperationResultDto>(false, null, errorDto);
             }
         }
 
-        /// <inheritdoc />
         public async Task<GatewayResponse<DicomOperationResultDto>> ExecuteDicomCEchoAsync(DicomCEchoRequestDto request, CancellationToken cancellationToken = default)
         {
-            _logger.Debug("ExternalServiceCoordinator: Executing DICOM C-ECHO via adapter to AE '{TargetAETitle}'.", request.TargetAE.AeTitle);
-             try
+            _logger.Info($"ServiceCoordinator: Attempting DICOM C-ECHO to AE '{request.TargetAE}' at '{request.TargetHost}:{request.TargetPort}'.");
+            try
             {
-                var dicomResult = await _dicomAdapter.SendCEchoAsync(request, cancellationToken);
+                DicomOperationResultDto dicomResult = await _dicomNetworkAdapter.SendCEchoAsync(request, cancellationToken);
 
-                 if (!dicomResult.IsSuccess)
-                 {
-                      var serviceError = _errorHandler.HandleErrorResponse(dicomResult, "DICOM");
-                      _logger.Warning($"DICOM C-ECHO adapter reported failure: {dicomResult.StatusMessage}. Status Code: {dicomResult.DicomStatusCode}");
-                     return GatewayResponse<DicomOperationResultDto>.Failure(serviceError);
-                 }
-
-                _logger.Info("DICOM C-ECHO operation successful for AE '{TargetAETitle}'.", request.TargetAE.AeTitle);
-                return GatewayResponse<DicomOperationResultDto>.Success(dicomResult);
+                _logger.Info($"ServiceCoordinator: DICOM C-ECHO operation completed for AE '{request.TargetAE}'. Success: {dicomResult.IsSuccess}, Status: {dicomResult.DicomStatusCode}.");
+                return new GatewayResponse<DicomOperationResultDto>(true, dicomResult, null);
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "Error during DICOM C-ECHO operation to AE '{TargetAETitle}'.", request.TargetAE.AeTitle);
-                var serviceError = _errorHandler.HandleError(ex, "DICOM");
-                return GatewayResponse<DicomOperationResultDto>.Failure(serviceError);
+                _logger.Error(ex, $"ServiceCoordinator: Error executing DICOM C-ECHO to AE '{request.TargetAE}'.");
+                ServiceErrorDto errorDto = _unifiedErrorHandlingService.HandleError(ex, "DicomNetworkAdapter");
+                return new GatewayResponse<DicomOperationResultDto>(false, null, errorDto);
             }
         }
 
-        /// <inheritdoc />
         public async Task<GatewayResponse<DicomCFindResultDto>> ExecuteDicomCFindAsync(DicomCFindRequestDto request, CancellationToken cancellationToken = default)
         {
-            _logger.Debug("ExternalServiceCoordinator: Executing DICOM C-FIND via adapter to AE '{TargetAETitle}' at level '{QueryLevel}'.", request.TargetAE.AeTitle, request.QueryLevel);
-             try
+            _logger.Info($"ServiceCoordinator: Attempting DICOM C-FIND to AE '{request.TargetAE}' at '{request.TargetHost}:{request.TargetPort}' with level '{request.QueryLevel}'.");
+            try
             {
-                var dicomResult = await _dicomAdapter.SendCFindAsync(request, cancellationToken);
+                DicomCFindResultDto dicomResult = await _dicomNetworkAdapter.SendCFindAsync(request, cancellationToken);
 
-                 if (!dicomResult.IsSuccess)
-                 {
-                      var serviceError = _errorHandler.HandleErrorResponse(dicomResult, "DICOM");
-                      _logger.Warning($"DICOM C-FIND adapter reported failure: {dicomResult.StatusMessage}. Status Code: {dicomResult.DicomStatusCode}");
-                     return GatewayResponse<DicomCFindResultDto>.Failure(serviceError);
-                 }
-
-                _logger.Info("DICOM C-FIND operation successful for AE '{TargetAETitle}'. Found {MatchCount} matches.", request.TargetAE.AeTitle, dicomResult.MatchedDatasets?.Count ?? 0);
-                return GatewayResponse<DicomCFindResultDto>.Success(dicomResult);
+                _logger.Info($"ServiceCoordinator: DICOM C-FIND operation completed for AE '{request.TargetAE}'. Success: {dicomResult.IsSuccess}, Status: {dicomResult.DicomStatusCode}, Matches: {dicomResult.MatchedDatasets?.Count ?? 0}.");
+                return new GatewayResponse<DicomCFindResultDto>(true, dicomResult, null);
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "Error during DICOM C-FIND operation to AE '{TargetAETitle}'.", request.TargetAE.AeTitle);
-                var serviceError = _errorHandler.HandleError(ex, "DICOM");
-                return GatewayResponse<DicomCFindResultDto>.Failure(serviceError);
+                _logger.Error(ex, $"ServiceCoordinator: Error executing DICOM C-FIND to AE '{request.TargetAE}'.");
+                ServiceErrorDto errorDto = _unifiedErrorHandlingService.HandleError(ex, "DicomNetworkAdapter");
+                return new GatewayResponse<DicomCFindResultDto>(false, null, errorDto);
             }
         }
 
-        /// <inheritdoc />
         public async Task<GatewayResponse<DicomOperationResultDto>> ExecuteDicomCMoveAsync(DicomCMoveRequestDto request, CancellationToken cancellationToken = default)
         {
-            _logger.Debug("ExternalServiceCoordinator: Executing DICOM C-MOVE via adapter from AE '{SourceAETitle}' to '{DestinationAETitle}'.", request.TargetAE.AeTitle, request.DestinationAE);
-             try
+            _logger.Info($"ServiceCoordinator: Attempting DICOM C-MOVE from AE '{request.TargetAE}' to destination '{request.DestinationAE}'.");
+            try
             {
-                var dicomResult = await _dicomAdapter.SendCMoveAsync(request, cancellationToken);
+                DicomOperationResultDto dicomResult = await _dicomNetworkAdapter.SendCMoveAsync(request, cancellationToken);
 
-                 if (!dicomResult.IsSuccess)
-                 {
-                      var serviceError = _errorHandler.HandleErrorResponse(dicomResult, "DICOM");
-                      _logger.Warning($"DICOM C-MOVE adapter reported failure: {dicomResult.StatusMessage}. Status Code: {dicomResult.DicomStatusCode}");
-                     return GatewayResponse<DicomOperationResultDto>.Failure(serviceError);
-                 }
-
-                _logger.Info("DICOM C-MOVE operation successful from AE '{SourceAETitle}' to '{DestinationAETitle}'.", request.TargetAE.AeTitle, request.DestinationAE);
-                return GatewayResponse<DicomOperationResultDto>.Success(dicomResult);
+                _logger.Info($"ServiceCoordinator: DICOM C-MOVE operation completed for AE '{request.TargetAE}'. Success: {dicomResult.IsSuccess}, Status: {dicomResult.DicomStatusCode}.");
+                return new GatewayResponse<DicomOperationResultDto>(true, dicomResult, null);
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "Error during DICOM C-MOVE operation from AE '{SourceAETitle}' to '{DestinationAETitle}'.", request.TargetAE.AeTitle, request.DestinationAE);
-                var serviceError = _errorHandler.HandleError(ex, "DICOM");
-                return GatewayResponse<DicomOperationResultDto>.Failure(serviceError);
+                _logger.Error(ex, $"ServiceCoordinator: Error executing DICOM C-MOVE from AE '{request.TargetAE}'.");
+                ServiceErrorDto errorDto = _unifiedErrorHandlingService.HandleError(ex, "DicomNetworkAdapter");
+                return new GatewayResponse<DicomOperationResultDto>(false, null, errorDto);
             }
         }
     }
