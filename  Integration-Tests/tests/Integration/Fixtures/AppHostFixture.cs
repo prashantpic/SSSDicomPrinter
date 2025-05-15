@@ -1,153 +1,126 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using System;
-using System.IO;
-using System.Threading.Tasks;
-using Xunit;
-using Moq;
-
-// Assuming these namespaces and types exist in referenced projects
-// using TheSSS.DicomViewer.Application;
-// using TheSSS.DicomViewer.Infrastructure;
-// using TheSSS.DicomViewer.Domain;
-
-// Placeholder for actual application and infrastructure service registration extensions
-namespace TheSSS.DicomViewer.Application
+using TheSSS.DicomViewer.Application.Services; // Assumed namespace for app services
+using TheSSS.DicomViewer.Infrastructure.Data;   // Assumed namespace for DbContext
+using TheSSS.DicomViewer.IntegrationTests.Mocks;
+using TheSSS.DicomViewer.IntegrationTests.Helpers;
+using TheSSS.DicomViewer.Presentation.ViewModels; // Assumed namespace for ViewModels
+// Define placeholder interfaces if they are not in referenced projects
+// These should ideally come from REPO-APP-SERVICES or REPO-COMMON
+#if !PROJECT_REFERENCES_DEFINE_THESE_INTERFACES
+namespace TheSSS.DicomViewer.Application.Services
 {
-    public interface ILicensingApiClient
-    {
-        Task<LicenseActivationResult> ActivateLicenseAsync(string key, CancellationToken cancellationToken = default);
-        Task<LicenseValidationResult> ValidateLicenseAsync(string key, CancellationToken cancellationToken = default);
-    }
-
-    public interface ISmtpService
-    {
-        Task SendEmailAsync(string recipient, string subject, string body);
-    }
-    // Add other interfaces like ILicensingOrchestrationService, ISystemMonitoringService etc. as needed by tests
+    public interface ISystemMonitoringOrchestrationService { Task CheckSystemStatusAsync(); /* other methods */ }
+    public interface IApplicationUpdateService { Task<Version?> CheckForUpdatesAsync(); /* other methods */ }
+    public interface IStorageMonitorService { Task<double> GetFreeSpacePercentageAsync(string path); }
+    public class PacsNodeStatus { public string NodeName { get; set; } = string.Empty; public bool IsConnected { get; set; } }
+    public interface IPacsConnectivityMonitorService { Task<List<PacsNodeStatus>> CheckPacsNodesAsync(); }
+    public interface IDicomFileProcessor { /* Methods to process DICOM files */ }
 }
+#endif
 
-namespace TheSSS.DicomViewer.Domain
-{
-    public class LicenseActivationResult { public bool Success { get; set; } public string Message { get; set; } /* Other properties */ }
-    public class LicenseValidationResult { public bool IsValid { get; set; } public DateTime? ExpiryDate { get; set; } /* Other properties */ }
-}
+namespace TheSSS.DicomViewer.IntegrationTests.Fixtures;
 
-namespace TheSSS.DicomViewer.Infrastructure
+public class AppHostFixture : IAsyncLifetime
 {
-    // Placeholder DicomDbContext
-    public class DicomDbContext : Microsoft.EntityFrameworkCore.DbContext
+    public IServiceProvider ServiceProvider { get; private set; } = default!;
+    private ServiceProvider? _serviceProviderInternal;
+    public IConfiguration Configuration { get; private set; } = default!;
+
+    // Expose specific mock instances if tests need to configure them directly
+    public Mock<IApplicationUpdateService> MockApplicationUpdateService { get; } = new();
+    public Mock<IStorageMonitorService> MockStorageMonitorService { get; } = new();
+    public Mock<IPacsConnectivityMonitorService> MockPacsConnectivityMonitorService { get; } = new();
+
+    public async Task InitializeAsync()
     {
-        public DicomDbContext(Microsoft.EntityFrameworkCore.DbContextOptions<DicomDbContext> options) : base(options) { }
-        // Define DbSets as needed, e.g.
-        // public Microsoft.EntityFrameworkCore.DbSet<TheSSS.DicomViewer.Domain.Patient> Patients { get; set; }
-        protected override void OnModelCreating(Microsoft.EntityFrameworkCore.ModelBuilder modelBuilder)
+        var services = new ServiceCollection();
+
+        Configuration = new ConfigurationBuilder()
+            .SetBasePath(Directory.GetCurrentDirectory())
+            .AddJsonFile("appsettings.IntegrationTests.json", optional: false, reloadOnChange: true)
+            .AddEnvironmentVariables()
+            .Build();
+
+        services.AddSingleton<IConfiguration>(Configuration);
+
+        // Register application core services (concrete types from REPO-APP-SERVICES)
+        services.AddScoped<ILicensingOrchestrationService, LicensingOrchestrationService>();
+        services.AddScoped<IDatabaseAdministrationService, DatabaseAdministrationService>();
+        services.AddScoped<IDicomSearchService, DicomSearchService>();
+        services.AddScoped<ISystemMonitoringOrchestrationService, SystemMonitoringOrchestrationService>();
+        // Assuming IDicomFileProcessor is needed by DatabaseFixture seeding, register it.
+        // If it's a real service, register it. If it's a utility, it might not be DI managed.
+        // services.AddScoped<IDicomFileProcessor, DicomFileProcessor>();
+
+
+        // Register external service clients or their mocks
+        if (Configuration.GetValue<bool>("MockSettings:EnableOdooLicensingMock", true))
         {
-            base.OnModelCreating(modelBuilder);
-            // Configure your entities here if not done via attributes or separate configurations
+            services.AddSingleton<ILicensingApiClient, MockOdooLicensingApiClient>();
         }
+        else
+        {
+            // services.AddSingleton<ILicensingApiClient, OdooLicensingApiClient>(); // Actual implementation
+            throw new NotSupportedException("Actual Odoo Licensing API client not configured for integration tests.");
+        }
+
+        if (Configuration.GetValue<bool>("MockSettings:EnableSmtpMock", true))
+        {
+            services.AddSingleton<ISmtpService, MockSmtpService>();
+        }
+        else
+        {
+            // services.AddSingleton<ISmtpService, RealSmtpService>(); // Actual implementation
+            throw new NotSupportedException("Actual SMTP service not configured for integration tests.");
+        }
+
+        // Register other mocked services using Moq directly
+        services.AddSingleton(MockApplicationUpdateService.Object); // Register the mocked object
+        services.AddSingleton(MockStorageMonitorService.Object);
+        services.AddSingleton(MockPacsConnectivityMonitorService.Object);
+
+
+        // Register Infrastructure implementations (e.g., Repositories)
+        // DbContext itself is usually managed by DatabaseFixture or per-test, not as a singleton/scoped here unless specific design.
+        // Repositories would typically be scoped if DbContext is scoped.
+        // Example:
+        // services.AddScoped<IPatientRepository, PatientRepository>();
+
+        // Register Test Helpers
+        services.AddSingleton<DicomTestDatasetManager>(); // Relies on IConfiguration
+        services.AddSingleton<PerformanceMetricsHelper>();
+        services.AddSingleton<UiInteractionHelper>(); // Relies on IServiceProvider
+
+        // Register ViewModels (typically Transient or Scoped depending on usage)
+        services.AddTransient<DicomImageViewerViewModel>(); // Assuming this ViewModel exists and is used by tests
+
+        _serviceProviderInternal = services.BuildServiceProvider();
+        ServiceProvider = _serviceProviderInternal;
+
+        // Allow UiInteractionHelper to resolve services itself
+        var uiHelperInstance = ServiceProvider.GetRequiredService<UiInteractionHelper>();
+        // uiHelperInstance.Initialize(ServiceProvider); // If UiInteractionHelper needs direct SP access after construction.
+
+        await Task.CompletedTask;
     }
 
-    public static class InfrastructureServiceCollectionExtensions
+    public async Task DisposeAsync()
     {
-        public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
+        if (_serviceProviderInternal is IAsyncDisposable asyncDisposable)
         {
-            // Example: Register DicomDbContext
-            services.AddDbContext<DicomDbContext>(options =>
-                options.UseSqlite(configuration.GetConnectionString("DicomDb")));
-            // Register other infrastructure services (repositories, file stores, etc.)
-            return services;
+            await asyncDisposable.DisposeAsync();
         }
-    }
-}
-
-namespace TheSSS.DicomViewer.Application
-{
-    public static class ApplicationServiceCollectionExtensions
-    {
-        public static IServiceCollection AddApplicationServices(this IServiceCollection services)
+        else
         {
-            // Example: Register application services
-            // services.AddScoped<ILicensingOrchestrationService, LicensingOrchestrationService>();
-            // services.AddScoped<IDicomSearchService, DicomSearchService>();
-            // ...
-            return services;
+            _serviceProviderInternal?.Dispose();
         }
-    }
-}
-// End of placeholder anemic type definitions for referenced projects
-
-
-namespace TheSSS.DicomViewer.IntegrationTests.Fixtures
-{
-    [CollectionDefinition("SequentialIntegrationTests")]
-    public class SequentialIntegrationTestsCollection : ICollectionFixture<AppHostFixture>, ICollectionFixture<DatabaseFixture>
-    {
-        // This class has no code, and is never created. Its purpose is simply
-        // to be the place to apply [CollectionDefinition] and all the
-        // ICollectionFixture<> interfaces.
+        _serviceProviderInternal = null;
     }
 
-    public class AppHostFixture : IAsyncLifetime
+    public T GetService<T>() where T : notnull
     {
-        public IServiceProvider ServiceProvider { get; private set; }
-        public IConfiguration Configuration { get; private set; }
-
-        public async Task InitializeAsync()
-        {
-            Configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.IntegrationTests.json", optional: false, reloadOnChange: true)
-                .AddEnvironmentVariables()
-                .Build();
-
-            var services = new ServiceCollection();
-
-            // Configure logging
-            services.AddLogging(configure => configure.AddConsole().SetMinimumLevel(LogLevel.Debug)); // Test-friendly logger
-
-            // Register configuration
-            services.AddSingleton(Configuration);
-
-            // Register production services (these are placeholders for actual extension methods)
-            services.AddApplicationServices(); // Assumes this extension method exists in REPO-APP-SERVICES
-            services.AddInfrastructureServices(Configuration); // Assumes this extension method exists in REPO-INFRA
-
-            // Override services with mocks based on configuration or test needs
-            if (Configuration.GetValue<bool>("FeatureFlags:EnableMockOdooLicensing", true)) // Default to true for tests
-            {
-                services.AddSingleton<ILicensingApiClient>(sp => new Mocks.MockOdooLicensingApiClient().Object);
-            }
-            // Always mock SMTP for integration tests to prevent actual email sending
-            services.AddSingleton<ISmtpService, Mocks.MockSmtpService>();
-
-            // Register other mocks as needed, for example:
-            // services.AddSingleton<Mock<IExternalApiService>>(new Mock<IExternalApiService>());
-
-            ServiceProvider = services.BuildServiceProvider();
-
-            await Task.CompletedTask;
-        }
-
-        public Task DisposeAsync()
-        {
-            if (ServiceProvider is IDisposable disposableServiceProvider)
-            {
-                disposableServiceProvider.Dispose();
-            }
-            return Task.CompletedTask;
-        }
-
-        public T GetService<T>()
-        {
-            return ServiceProvider.GetRequiredService<T>();
-        }
-
-        public Mock<T> GetMock<T>() where T : class
-        {
-            var service = ServiceProvider.GetRequiredService<T>();
-            return Moq.Mock.Get(service);
-        }
+        return ServiceProvider.GetRequiredService<T>();
     }
 }

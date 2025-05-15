@@ -1,152 +1,239 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using System;
-using System.IO;
-using System.Threading.Tasks;
-using TheSSS.DicomViewer.Infrastructure; // For DicomDbContext
+using System.Diagnostics;
+using TheSSS.DicomViewer.Domain.Entities; // Required for seeding
+using TheSSS.DicomViewer.Infrastructure.Data;
+using FellowOakDicom; // Assuming FO-DICOM is used for DICOM parsing
 
-namespace TheSSS.DicomViewer.IntegrationTests.Fixtures
+namespace TheSSS.DicomViewer.IntegrationTests.Fixtures;
+
+public class DatabaseFixture : IAsyncLifetime
 {
-    public class DatabaseFixture : IAsyncLifetime
+    private readonly IConfiguration _configuration;
+    private readonly DicomTestDatasetManager _datasetManager; // Made available for seeding methods
+    private string _dbFilePath = string.Empty; // For file-based SQLite
+
+    public string ConnectionString { get; private set; } = default!;
+
+    // Static lock and flag to ensure migrations are applied only once per test run for a shared DB.
+    // If each collection/class gets a new DB file, this might not be strictly needed for migration part
+    // but can be useful for one-time global setup if any.
+    private static readonly object _dbInitializationLock = new();
+    private static bool _isDatabaseGloballyInitialized = false;
+
+
+    public DatabaseFixture(IConfiguration configuration, DicomTestDatasetManager datasetManager)
     {
-        public string ConnectionString { get; private set; }
-        private readonly IConfiguration _configuration;
-        private string _dbFilePath;
+        _configuration = configuration;
+        _datasetManager = datasetManager; // Store for potential use in seeding
 
-        // Constructor to receive IConfiguration, typically resolved from AppHostFixture or built ad-hoc
-        public DatabaseFixture()
+        var configuredConnectionString = _configuration.GetConnectionString("TestDatabase");
+
+        if (string.IsNullOrEmpty(configuredConnectionString) || configuredConnectionString.ToLowerInvariant().Contains(":memory:"))
         {
-            // This constructor is used when DatabaseFixture is injected directly.
-            // For ICollectionFixture, xUnit creates an instance using a parameterless constructor if available,
-            // or one that can be satisfied by other registered services if part of a more complex DI setup (not typical for xUnit fixtures directly).
-            // AppHostFixture will build and provide IConfiguration. Tests can access it via AppHostFixture.
-            // Here, we build a temporary one for standalone DatabaseFixture use or initial setup path.
-            // In a combined collection, AppHostFixture.Configuration would be preferred.
-             _configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.IntegrationTests.json", optional: false, reloadOnChange: true)
-                .Build();
-
-            InitializeDatabasePath();
+            // Use a unique in-memory database for each fixture instance if not explicitly file-based.
+            // "DataSource=file:{Guid.NewGuid()}?mode=memory&cache=shared" ensures it's unique but kept alive by one connection.
+            // However, for true isolation and migration testing, a unique file per test run/collection is better.
+            // For simplicity with xUnit fixtures, a shared in-memory might require careful collection management.
+            // Let's default to a unique file-based DB per fixture instance to support migrations robustly.
+            _dbFilePath = Path.Combine(Path.GetTempPath(), $"testdb_{Guid.NewGuid()}.db");
+            ConnectionString = $"Data Source={_dbFilePath}";
         }
-        
-        // This constructor would be used if IConfiguration is passed from AppHostFixture through a custom collection definition.
-        // For simplicity with standard ICollectionFixture, the parameterless one is often relied upon.
-        // public DatabaseFixture(IConfiguration configuration)
-        // {
-        //     _configuration = configuration;
-        //     InitializeDatabasePath();
-        // }
-
-        private void InitializeDatabasePath()
+        else
         {
-            var configuredConnectionString = _configuration.GetConnectionString("DicomDb");
-            if (configuredConnectionString != null && configuredConnectionString.StartsWith("DataSource="))
+            // If a specific file is configured, use it but be wary of parallel test runs if not unique.
+            // For safety, append a GUID or use a unique path mechanism.
+            // Here, we assume the configured string is a template or a base name.
+            // For this example, we will use the configured path directly if it's not memory.
+            // It's better if `appsettings.IntegrationTests.json` uses a placeholder like "Data Source=integration_test_{guid}.db"
+            // or this fixture manages uniqueness.
+            _dbFilePath = configuredConnectionString.Replace("Data Source=", ""); // simplify path extraction
+             if (Path.GetDirectoryName(_dbFilePath) == string.Empty) // If only filename
+             {
+                _dbFilePath = Path.Combine(Path.GetTempPath(), Path.GetFileName(_dbFilePath)); // Place in temp
+             }
+            ConnectionString = $"Data Source={_dbFilePath}";
+        }
+    }
+
+    public async Task InitializeAsync()
+    {
+        // This lock ensures that for a given DatabaseFixture instance (shared within a collection),
+        // the database creation and migration occurs only once.
+        // If _isDatabaseGloballyInitialized is used for a truly shared DB (e.g. static connection string),
+        // then it prevents re-migration across collections too.
+        // For per-fixture file DB, the lock is more about the operations on *this* fixture's DB.
+
+        lock (_dbInitializationLock) // Lock on a static object for global init control
+        {
+            // if (_isDatabaseGloballyInitialized && ConnectionString.Contains(":memory:")) return; // Example for shared in-mem
+
+            using var context = CreateContextInternal(true); // Use internal to bypass logging if any
+            // Ensure any previous instance of the file DB is removed for a clean slate
+            if (!ConnectionString.Contains(":memory:") && File.Exists(_dbFilePath))
             {
-                 // Ensure unique DB for parallel runs if file-based and not in-memory
-                var dbName = configuredConnectionString.Substring("DataSource=".Length);
-                if (dbName.Equals(":memory:", StringComparison.OrdinalIgnoreCase)) {
-                    ConnectionString = configuredConnectionString; // In-memory
-                    _dbFilePath = null;
-                } else {
-                    _dbFilePath = Path.Combine(Path.GetTempPath(), $"test_dicom_{Guid.NewGuid()}.db"); // Unique DB file
-                    ConnectionString = $"DataSource={_dbFilePath}";
-                }
+                context.Database.EnsureDeleted();
             }
-            else
-            {
-                // Default to a unique temporary file-based SQLite DB if not configured or misconfigured
-                _dbFilePath = Path.Combine(Path.GetTempPath(), $"test_dicom_{Guid.NewGuid()}.db");
-                ConnectionString = $"DataSource={_dbFilePath}";
-            }
+            context.Database.Migrate(); // Apply EF Core migrations
+
+            // _isDatabaseGloballyInitialized = true; // Set if DB is truly globally shared
         }
+        await Task.CompletedTask;
+    }
 
-
-        public async Task InitializeAsync()
+    public async Task DisposeAsync()
+    {
+        // Clean up the database file if one was created by this fixture
+        if (!string.IsNullOrEmpty(_dbFilePath) && File.Exists(_dbFilePath) && !ConnectionString.Contains(":memory:"))
         {
-            await using var context = CreateContext();
-            await context.Database.EnsureDeletedAsync(); // Clean up any previous instance, if file-based
-            await context.Database.MigrateAsync(); // Apply migrations
-
-            // Optionally, seed a minimal baseline dataset if required for *all* database tests
-            // await SeedBaselineDataAsync(context);
-        }
-
-        public async Task DisposeAsync()
-        {
-            if (_dbFilePath != null && File.Exists(_dbFilePath))
-            {
-                // Attempt to delete the database file.
-                // EF Core connections might hold the file lock. Ensure all contexts are disposed.
-                // For safety, a more robust cleanup might involve GC.Collect and GC.WaitForPendingFinalizers before delete.
-                try
-                {
-                     // Ensure all connections are closed by disposing a final context.
-                    await using (var context = CreateContext())
-                    {
-                        // The context itself doesn't need specific action here, just its disposal.
-                    }
-                    File.Delete(_dbFilePath);
-                }
-                catch (IOException)
-                {
-                    // Log or handle inability to delete, possibly due to file lock
-                    Console.WriteLine($"Warning: Could not delete test database file: {_dbFilePath}");
-                }
-            }
-        }
-
-        public DicomDbContext CreateContext()
-        {
-            var optionsBuilder = new DbContextOptionsBuilder<DicomDbContext>();
-            optionsBuilder.UseSqlite(ConnectionString);
-            return new DicomDbContext(optionsBuilder.Options);
-        }
-
-        public async Task SeedDataAsync(Action<DicomDbContext> seedAction)
-        {
-            await using var context = CreateContext();
-            await using var transaction = await context.Database.BeginTransactionAsync();
+            // Attempt to delete the database file.
+            // This might require ensuring all connections are closed.
+            // Forcibly clear pools related to the connection string if using pooling with SQLite.
+            // Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); // Might be too broad
             try
             {
-                seedAction(context);
-                await context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                // A final context to ensure deletion.
+                // Create a new options instance for disposal context.
+                var optionsBuilder = new DbContextOptionsBuilder<DicomDbContext>();
+                optionsBuilder.UseSqlite(ConnectionString);
+                await using (var context = new DicomDbContext(optionsBuilder.Options))
+                {
+                    await context.Database.EnsureDeletedAsync();
+                }
+                // Fallback, though EnsureDeletedAsync should handle it.
+                // File.Delete(_dbFilePath);
             }
-            catch
+            catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                throw;
+                Debug.WriteLine($"Failed to delete test database '{_dbFilePath}': {ex.Message}");
+                // Log this error appropriately in a real test suite
             }
         }
-        
-        public async Task SeedDataAsync<TEntity>(params TEntity[] entities) where TEntity : class
+    }
+    private DicomDbContext CreateContextInternal(bool useMinimalLogging = false)
+    {
+        var optionsBuilder = new DbContextOptionsBuilder<DicomDbContext>();
+        optionsBuilder.UseSqlite(ConnectionString);
+        if (useMinimalLogging)
         {
-            await using var context = CreateContext();
-            context.Set<TEntity>().AddRange(entities);
-            await context.SaveChangesAsync();
+            // Optionally configure minimal logging or no logging for fixture setup
         }
-
-
-        public async Task ResetDatabaseAsync()
+        else
         {
-            await using var context = CreateContext();
-            await context.Database.EnsureDeletedAsync();
-            await context.Database.MigrateAsync();
-            // If baseline data is needed after reset:
-            // await SeedBaselineDataAsync(context);
+            // Optionally configure more detailed logging for tests
+            // optionsBuilder.LogTo(Console.WriteLine, Microsoft.Extensions.Logging.LogLevel.Information);
+            // optionsBuilder.EnableSensitiveDataLogging();
         }
+        return new DicomDbContext(optionsBuilder.Options);
+    }
+    public DicomDbContext CreateContext()
+    {
+       return CreateContextInternal(false);
+    }
 
-        // Example baseline seeding, if needed
-        // private async Task SeedBaselineDataAsync(DicomDbContext context)
-        // {
-        //     // Add any data that should be present for all tests using this fixture
-        //     // For example, some default configuration entries or system users
-        //     if (!await context.YourEntities.AnyAsync())
-        //     {
-        //         context.YourEntities.Add(new YourEntity { /* ... */ });
-        //         await context.SaveChangesAsync();
-        //     }
-        // }
+    public async Task SeedDataAsync(Action<DicomDbContext> seedAction)
+    {
+        await using var context = CreateContext();
+        seedAction(context);
+        await context.SaveChangesAsync();
+    }
+
+    public async Task ResetDatabaseAsync()
+    {
+        await using var context = CreateContext();
+        await context.Database.EnsureDeletedAsync();
+        await context.Database.MigrateAsync();
+    }
+
+    public async Task SeedMetadataFromDicomFilesAsync(string datasetName, int maxFilesToProcess = int.MaxValue)
+    {
+        var filePaths = _datasetManager.GetAllFilePathsFromDataset(datasetName).Take(maxFilesToProcess);
+        await using var context = CreateContext();
+
+        foreach (var filePath in filePaths)
+        {
+            try
+            {
+                var dicomFile = await DicomFile.OpenAsync(filePath);
+                var dataset = dicomFile.Dataset;
+
+                string patientId = dataset.GetSingleValueOrDefault(DicomTag.PatientID, $"PAT_{Guid.NewGuid().ToString().Substring(0, 8)}");
+                string patientName = dataset.GetSingleValueOrDefault(DicomTag.PatientName, "Unknown^Patient");
+
+                var patient = await context.Patients.FirstOrDefaultAsync(p => p.PatientId == patientId);
+                if (patient == null)
+                {
+                    patient = new Patient
+                    {
+                        PatientId = patientId,
+                        PatientName = patientName,
+                        PatientBirthDate = dataset.GetSingleValueOrDefault(DicomTag.PatientBirthDate, string.Empty),
+                        PatientSex = dataset.GetSingleValueOrDefault(DicomTag.PatientSex, string.Empty),
+                        LastUpdateTime = DateTime.UtcNow
+                    };
+                    context.Patients.Add(patient);
+                    await context.SaveChangesAsync(); // Save patient to get DB-generated ID if applicable
+                }
+
+                string studyInstanceUid = dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID);
+                var study = await context.Studies.FirstOrDefaultAsync(s => s.StudyInstanceUid == studyInstanceUid);
+                if (study == null)
+                {
+                    study = new Study
+                    {
+                        StudyInstanceUid = studyInstanceUid,
+                        PatientId = patient.Id, // Assuming Patient.Id is the PK
+                        StudyDate = dataset.GetDateTime(DicomTag.StudyDate, DicomTag.StudyTime).GetValueOrDefault(),
+                        AccessionNumber = dataset.GetSingleValueOrDefault(DicomTag.AccessionNumber, string.Empty),
+                        StudyDescription = dataset.GetSingleValueOrDefault(DicomTag.StudyDescription, string.Empty),
+                        LastUpdateTime = DateTime.UtcNow
+                    };
+                    context.Studies.Add(study);
+                    await context.SaveChangesAsync();
+                }
+
+                string seriesInstanceUid = dataset.GetSingleValue<string>(DicomTag.SeriesInstanceUID);
+                var series = await context.Series.FirstOrDefaultAsync(s => s.SeriesInstanceUid == seriesInstanceUid);
+                if (series == null)
+                {
+                    series = new Series
+                    {
+                        SeriesInstanceUid = seriesInstanceUid,
+                        StudyId = study.Id, // Assuming Study.Id is the PK
+                        Modality = dataset.GetSingleValueOrDefault(DicomTag.Modality, string.Empty),
+                        SeriesNumber = dataset.GetSingleValueOrDefault(DicomTag.SeriesNumber, string.Empty),
+                        SeriesDescription = dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, string.Empty),
+                        LastUpdateTime = DateTime.UtcNow
+                    };
+                    context.Series.Add(series);
+                    await context.SaveChangesAsync();
+                }
+
+                string sopInstanceUid = dataset.GetSingleValue<string>(DicomTag.SOPInstanceUID);
+                var instance = await context.Instances.FirstOrDefaultAsync(i => i.SopInstanceUid == sopInstanceUid);
+                if (instance == null)
+                {
+                    instance = new Instance
+                    {
+                        SopInstanceUid = sopInstanceUid,
+                        SeriesId = series.Id, // Assuming Series.Id is the PK
+                        SopClassUid = dataset.GetSingleValue<string>(DicomTag.SOPClassUID),
+                        InstanceNumber = dataset.GetSingleValueOrDefault(DicomTag.InstanceNumber, string.Empty),
+                        InstanceFilePath = filePath, // Store path to the original file
+                        PhotometricInterpretation = dataset.GetSingleValueOrDefault(DicomTag.PhotometricInterpretation, string.Empty),
+                        Rows = dataset.GetSingleValueOrDefault(DicomTag.Rows, (ushort)0),
+                        Columns = dataset.GetSingleValueOrDefault(DicomTag.Columns, (ushort)0),
+                        IsAnonymized = false, // Default
+                        LastUpdateTime = DateTime.UtcNow
+                    };
+                    context.Instances.Add(instance);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error processing DICOM file {filePath} for seeding: {ex.Message}");
+            }
+        }
+        await context.SaveChangesAsync();
     }
 }

@@ -1,79 +1,98 @@
 using Microsoft.Extensions.Configuration;
-using System;
-using System.Collections.Generic;
 using System.IO;
+using System.Collections.Generic;
 using System.Linq;
 
-namespace TheSSS.DicomViewer.IntegrationTests.Fixtures
+namespace TheSSS.DicomViewer.IntegrationTests.Fixtures;
+
+public class DicomTestDatasetManager
 {
-    public class DicomTestDatasetManager
+    private readonly string _baseTestDataPath;
+
+    public DicomTestDatasetManager(IConfiguration configuration)
     {
-        private readonly string _testDataRootPath;
-        private readonly IConfiguration _configuration;
+        _baseTestDataPath = configuration["TestDataPaths:DicomRoot"]
+            ?? throw new InvalidOperationException("Configuration key 'TestDataPaths:DicomRoot' not found in appsettings.IntegrationTests.json.");
 
-        public DicomTestDatasetManager(IConfiguration configuration)
+        if (!Path.IsPathRooted(_baseTestDataPath))
         {
-            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-            _testDataRootPath = _configuration["TestDataPath"] ?? "TestData"; // Default to "TestData" relative to execution
-
-            // Ensure the base path is absolute for reliability
-            if (!Path.IsPathRooted(_testDataRootPath))
-            {
-                _testDataRootPath = Path.Combine(AppContext.BaseDirectory, _testDataRootPath);
-            }
-
-            if (!Directory.Exists(_testDataRootPath))
-            {
-                // Attempt to create if it doesn't exist, useful for some CI scenarios
-                // Directory.CreateDirectory(_testDataRootPath);
-                // For this exercise, we assume it exists or tests requiring it will fail meaningfully.
-                Console.WriteLine($"Warning: Test data root path '{_testDataRootPath}' not found.");
-            }
+            // Assuming tests run from a directory where AppContext.BaseDirectory is appropriate (e.g., bin/Debug/net8.0)
+            _baseTestDataPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, _baseTestDataPath));
         }
 
-        public string GetDatasetPath(string datasetName)
+        if (!Directory.Exists(_baseTestDataPath))
         {
-            if (string.IsNullOrWhiteSpace(datasetName))
-            {
-                throw new ArgumentException("Dataset name cannot be null or whitespace.", nameof(datasetName));
-            }
-            return Path.Combine(_testDataRootPath, datasetName);
+            throw new DirectoryNotFoundException($"The configured DICOM test data root directory was not found: {_baseTestDataPath}. " +
+                $"Ensure 'TestData' directory exists relative to the test execution path or an absolute path is configured correctly.");
         }
+    }
 
-        public string GetFilePath(string datasetName, string fileName)
+    public string GetDatasetPath(string datasetName)
+    {
+        var fullPath = Path.Combine(_baseTestDataPath, datasetName);
+        if (!Directory.Exists(fullPath))
         {
-            if (string.IsNullOrWhiteSpace(datasetName))
-            {
-                throw new ArgumentException("Dataset name cannot be null or whitespace.", nameof(datasetName));
-            }
-            if (string.IsNullOrWhiteSpace(fileName))
-            {
-                throw new ArgumentException("File name cannot be null or whitespace.", nameof(fileName));
-            }
-            return Path.Combine(GetDatasetPath(datasetName), fileName);
+            throw new DirectoryNotFoundException($"Test dataset directory '{datasetName}' not found at expected path: {fullPath}");
         }
+        return fullPath;
+    }
 
-        public string GetLargeDatasetForPerformanceTest()
+    public string GetFilePath(string datasetName, string fileName)
+    {
+        var datasetFullPath = GetDatasetPath(datasetName); // This will throw if datasetName is invalid
+        var filePath = Path.Combine(datasetFullPath, fileName);
+        if (!File.Exists(filePath))
         {
-            // As per SDS: Path.Combine(TestDataPath, "rendering_performance", "dicom_2gb_dataset_1")
-            // This can be made configurable via appsettings.IntegrationTests.json if needed.
-            // For now, hardcoding the subpath relative to TestDataRootPath.
-            string largeDatasetRelativePath = _configuration["TestDataPaths:RenderingPerformanceLargeDataset"]
-                                              ?? Path.Combine("rendering_performance", "dicom_2gb_dataset_1");
-            return Path.Combine(_testDataRootPath, largeDatasetRelativePath);
+            throw new FileNotFoundException($"Test data file '{fileName}' not found in dataset '{datasetName}' at expected path: {filePath}");
         }
+        return filePath;
+    }
 
-        public IEnumerable<string> GetAllFilePathsFromDataset(string datasetName, string searchPattern = "*.dcm")
-        {
-            var datasetPath = GetDatasetPath(datasetName);
-            if (!Directory.Exists(datasetPath))
-            {
-                // Consider throwing FileNotFoundException or DirectoryNotFoundException
-                // For now, returning empty or logging a warning is also an option.
-                Console.WriteLine($"Warning: Dataset directory '{datasetPath}' not found for dataset '{datasetName}'.");
-                return Enumerable.Empty<string>();
-            }
-            return Directory.EnumerateFiles(datasetPath, searchPattern, SearchOption.AllDirectories);
-        }
+    public string GetLargeDatasetForPerformanceTest()
+    {
+        // This name must match the directory structure in TestData
+        return GetDatasetPath("rendering_performance/dicom_2gb_dataset_1");
+    }
+
+    public IEnumerable<string> GetAllFilePathsFromDataset(string datasetName)
+    {
+        var datasetPath = GetDatasetPath(datasetName);
+        return Directory.EnumerateFiles(datasetPath, "*.dcm", SearchOption.AllDirectories);
+    }
+
+    // Convenience methods for specific, known test datasets
+    public string GetStandardMonochromeCTDatasetPath()
+    {
+        return GetDatasetPath("rendering_performance/monochrome_ct_dataset");
+    }
+
+    public string GetStandardColorUltrasoundDatasetPath()
+    {
+        return GetDatasetPath("rendering_performance/color_us_dataset");
+    }
+
+    public string GetLicensingTestDataPath()
+    {
+        return GetDatasetPath("licensing");
+    }
+    
+    public string GetValidLicenseKeyPath()
+    {
+        return GetFilePath("licensing", "valid_key.txt");
+    }
+
+    public string GetInvalidLicenseKeyPath()
+    {
+        return GetFilePath("licensing", "invalid_key.txt");
+    }
+    
+    public string GetSearchPerformanceDataPath()
+    {
+        return GetDatasetPath("search_performance");
+    }
+
+    public string GetMetadataSeedTemplatePath()
+    {
+        return GetFilePath("search_performance", "metadata_seed_template.dcm");
     }
 }
