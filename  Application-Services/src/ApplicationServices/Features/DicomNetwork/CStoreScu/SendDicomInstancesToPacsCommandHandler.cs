@@ -1,59 +1,60 @@
+using System.Threading;
+using System.Threading.Tasks;
 using MediatR;
-using TheSSS.DicomViewer.Application.Interfaces.Infrastructure;
+using Microsoft.Extensions.Logging;
 using TheSSS.DicomViewer.Application.Interfaces.Persistence;
+using TheSSS.DicomViewer.Application.Interfaces.Infrastructure;
 using TheSSS.DicomViewer.Application.DTOs.Pacs;
 
-namespace TheSSS.DicomViewer.Application.Features.DicomNetwork.CStoreScu;
-
-public class SendDicomInstancesToPacsCommandHandler : IRequestHandler<SendDicomInstancesToPacsCommand, CStoreScuResultDto>
+namespace TheSSS.DicomViewer.Application.Features.DicomNetwork.CStoreScu
 {
-    private readonly IPacsConfigurationRepository _pacsRepository;
-    private readonly IInstanceRepository _instanceRepository;
-    private readonly IDicomCommsService _dicomComms;
-    private readonly IAuditLogRepository _auditLog;
-
-    public SendDicomInstancesToPacsCommandHandler(
-        IPacsConfigurationRepository pacsRepository,
-        IInstanceRepository instanceRepository,
-        IDicomCommsService dicomComms,
-        IAuditLogRepository auditLog)
+    public class SendDicomInstancesToPacsCommandHandler : IRequestHandler<SendDicomInstancesToPacsCommand, CStoreScuResultDto>
     {
-        _pacsRepository = pacsRepository;
-        _instanceRepository = instanceRepository;
-        _dicomComms = dicomComms;
-        _auditLog = auditLog;
-    }
+        private readonly IPacsConfigurationRepository _pacsConfigRepository;
+        private readonly IInstanceRepository _instanceRepository;
+        private readonly IDicomCommsService _dicomCommsService;
+        private readonly ILogger<SendDicomInstancesToPacsCommandHandler> _logger;
 
-    public async Task<CStoreScuResultDto> Handle(SendDicomInstancesToPacsCommand request, CancellationToken cancellationToken)
-    {
-        var result = new CStoreScuResultDto();
-        var pacsConfig = await _pacsRepository.GetByIdAsync(request.PacsNodeId);
-        var instances = await _instanceRepository.GetByUidsAsync(request.SopInstanceUids);
-
-        foreach (var instance in instances)
+        public SendDicomInstancesToPacsCommandHandler(
+            IPacsConfigurationRepository pacsConfigRepository,
+            IInstanceRepository instanceRepository,
+            IDicomCommsService dicomCommsService,
+            ILogger<SendDicomInstancesToPacsCommandHandler> logger)
         {
+            _pacsConfigRepository = pacsConfigRepository;
+            _instanceRepository = instanceRepository;
+            _dicomCommsService = dicomCommsService;
+            _logger = logger;
+        }
+
+        public async Task<CStoreScuResultDto> Handle(SendDicomInstancesToPacsCommand request, CancellationToken cancellationToken)
+        {
+            var result = new CStoreScuResultDto();
+            
             try
             {
-                await _dicomComms.SendCStoreAsync(pacsConfig, instance.FilePath);
-                result.InstanceSendStatuses.Add(instance.SopInstanceUid, true);
+                var pacsConfig = await _pacsConfigRepository.GetByIdAsync(request.PacsNodeId);
+                var instances = await _instanceRepository.GetByUidsAsync(request.SopInstanceUids);
+                
+                foreach (var instance in instances)
+                {
+                    var storeResult = await _dicomCommsService.SendCStoreAsync(pacsConfig, instance.FilePath);
+                    if (storeResult.Success)
+                        result.InstancesSent++;
+                    else
+                        result.FailedInstanceUids.Add(instance.SopInstanceUid);
+                }
+                
+                result.Success = true;
             }
             catch (Exception ex)
             {
-                result.InstanceSendStatuses.Add(instance.SopInstanceUid, false);
-                await LogFailedTransfer(instance, ex);
+                _logger.LogError(ex, "Error sending instances to PACS node {NodeId}", request.PacsNodeId);
+                result.Success = false;
+                result.Message = ex.Message;
             }
+            
+            return result;
         }
-
-        return result;
-    }
-
-    private async Task LogFailedTransfer(Instance instance, Exception ex)
-    {
-        await _auditLog.AddAsync(new AuditLog
-        {
-            EventType = "CStoreFailure",
-            Description = $"Failed to send instance {instance.SopInstanceUid}",
-            Details = ex.Message
-        });
     }
 }

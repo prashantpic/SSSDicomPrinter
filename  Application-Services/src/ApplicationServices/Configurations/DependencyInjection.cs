@@ -1,27 +1,29 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
 using FluentValidation;
 using MediatR;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using TheSSS.DicomViewer.Application.Interfaces.Application;
-using TheSSS.DicomViewer.Application.Services;
+using AutoMapper;
 
-namespace TheSSS.DicomViewer.Application.Configurations;
-
-public static class DependencyInjection
+namespace TheSSS.DicomViewer.Application.Configurations
 {
-    public static IServiceCollection AddApplicationServices(this IServiceCollection services, IConfiguration configuration)
+    public static class DependencyInjection
     {
-        services.AddMediatR(cfg => 
-            cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly()));
+        public static IServiceCollection AddApplicationServices(this IServiceCollection services, IConfiguration configuration)
+        {
+            services.AddMediatR(cfg => 
+                cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly()));
+            
+            services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
+            services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+            
+            services.AddAutoMapper(Assembly.GetExecutingAssembly());
+            
+            services.AddScoped<IDicomImportService, DicomImportOrchestratorService>();
+            services.AddScoped<IAnonymizationOrchestrationService, AnonymizationOrchestrationService>();
+            services.AddScoped<IDicomNetworkService, DicomNetworkOrchestratorService>();
 
-        services.AddAutoMapper(Assembly.GetExecutingAssembly());
-        services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
-
-        services.AddScoped<IDicomImportService, DicomImportOrchestratorService>();
-        services.AddScoped<IAnonymizationOrchestrationService, AnonymizationOrchestrationService>();
-        services.AddScoped<IDicomNetworkService, DicomNetworkOrchestratorService>();
-
-        return services;
+            return services;
+        }
     }
 }

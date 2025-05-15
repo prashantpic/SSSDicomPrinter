@@ -1,25 +1,23 @@
+using System.Threading;
+using System.Threading.Tasks;
 using MediatR;
 using TheSSS.DicomViewer.Application.Interfaces.Infrastructure;
-using TheSSS.DicomViewer.Application.Interfaces.Persistence;
 
-namespace TheSSS.DicomViewer.Application.Features.DicomNetwork.CStoreScp;
-
-public class RejectIncomingStudyCommandHandler : IRequestHandler<RejectIncomingStudyCommand>
+namespace TheSSS.DicomViewer.Application.Features.DicomNetwork.CStoreScp
 {
-    private readonly IFileSystemService _fileSystem;
-    private readonly IAuditLogRepository _auditLog;
-    private readonly IConfigurationService _config;
-
-    public RejectIncomingStudyCommandHandler(
-        IFileSystemService fileSystem,
-        IAuditLogRepository auditLog,
-        IConfigurationService config)
+    public class RejectIncomingStudyCommandHandler : IRequestHandler<RejectIncomingStudyCommand, Unit>
     {
-        _fileSystem = fileSystem;
-        _auditLog = auditLog;
-        _config = config;
+        private readonly IFileSystemService _fileSystemService;
+
+        public RejectIncomingStudyCommandHandler(IFileSystemService fileSystemService)
+        {
+            _fileSystemService = fileSystemService;
+        }
+
+        public async Task<Unit> Handle(RejectIncomingStudyCommand request, CancellationToken cancellationToken)
+        {
+            await _fileSystemService.MoveToRejectedArchiveAsync(request.StudyInstanceUidOrPath);
+            return Unit.Value;
+        }
     }
-
-    public async Task Handle(RejectIncomingStudyCommand request, CancellationToken cancellationToken)
-    {
-        var holdingPath = _config.GetValue
+}

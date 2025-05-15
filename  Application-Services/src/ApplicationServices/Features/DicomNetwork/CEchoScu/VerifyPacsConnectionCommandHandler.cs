@@ -1,70 +1,57 @@
+using System.Threading;
+using System.Threading.Tasks;
 using MediatR;
-using TheSSS.DicomViewer.Application.Interfaces.Infrastructure;
+using Microsoft.Extensions.Logging;
 using TheSSS.DicomViewer.Application.Interfaces.Persistence;
+using TheSSS.DicomViewer.Application.Interfaces.Infrastructure;
 using TheSSS.DicomViewer.Application.DTOs.Pacs;
 
-namespace TheSSS.DicomViewer.Application.Features.DicomNetwork.CEchoScu;
-
-public class VerifyPacsConnectionCommandHandler : IRequestHandler<VerifyPacsConnectionCommand, CEchoResultDto>
+namespace TheSSS.DicomViewer.Application.Features.DicomNetwork.CEchoScu
 {
-    private readonly IPacsConfigurationRepository _pacsRepository;
-    private readonly IDicomCommsService _dicomComms;
-    private readonly IUnitOfWork _unitOfWork;
-    private readonly IAuditLogRepository _auditLog;
-    private readonly IAlertingService _alerter;
-
-    public VerifyPacsConnectionCommandHandler(
-        IPacsConfigurationRepository pacsRepository,
-        IDicomCommsService dicomComms,
-        IUnitOfWork unitOfWork,
-        IAuditLogRepository auditLog,
-        IAlertingService alerter)
+    public class VerifyPacsConnectionCommandHandler : IRequestHandler<VerifyPacsConnectionCommand, CEchoResultDto>
     {
-        _pacsRepository = pacsRepository;
-        _dicomComms = dicomComms;
-        _unitOfWork = unitOfWork;
-        _auditLog = auditLog;
-        _alerter = alerter;
-    }
+        private readonly IPacsConfigurationRepository _pacsConfigRepository;
+        private readonly IDicomCommsService _dicomCommsService;
+        private readonly IUnitOfWork _unitOfWork;
+        private readonly ILogger<VerifyPacsConnectionCommandHandler> _logger;
 
-    public async Task<CEchoResultDto> Handle(VerifyPacsConnectionCommand request, CancellationToken cancellationToken)
-    {
-        var config = await _pacsRepository.GetByIdAsync(request.PacsNodeId);
-        var result = new CEchoResultDto();
-
-        try
+        public VerifyPacsConnectionCommandHandler(
+            IPacsConfigurationRepository pacsConfigRepository,
+            IDicomCommsService dicomCommsService,
+            IUnitOfWork unitOfWork,
+            ILogger<VerifyPacsConnectionCommandHandler> logger)
         {
-            var response = await _dicomComms.SendCEchoAsync(config);
-            result.IsSuccessful = response.Success;
-            result.ResponseTime = response.Duration;
+            _pacsConfigRepository = pacsConfigRepository;
+            _dicomCommsService = dicomCommsService;
+            _unitOfWork = unitOfWork;
+            _logger = logger;
+        }
+
+        public async Task<CEchoResultDto> Handle(VerifyPacsConnectionCommand request, CancellationToken cancellationToken)
+        {
+            var result = new CEchoResultDto();
             
-            config.LastSuccessfulConnection = DateTime.UtcNow;
-            await _pacsRepository.UpdateAsync(config);
-        }
-        catch (Exception ex)
-        {
-            result.IsSuccessful = false;
-            result.ErrorMessage = ex.Message;
-            await HandleFailedConnection(config, ex);
-        }
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return result;
-    }
-
-    private async Task HandleFailedConnection(PacsConfiguration config, Exception ex)
-    {
-        await _auditLog.AddAsync(new AuditLog
-        {
-            EventType = "PacsConnectionFailure",
-            Description = $"Failed C-ECHO to {config.AeTitle}",
-            Details = ex.Message
-        });
-
-        if (config.ConsecutiveFailures >= 3)
-        {
-            await _alerter.SendAlertAsync("PACS Connection Critical", 
-                $"Multiple failures connecting to {config.AeTitle}");
+            try
+            {
+                var pacsConfig = await _pacsConfigRepository.GetByIdAsync(request.PacsNodeId);
+                var echoResult = await _dicomCommsService.SendCEchoAsync(pacsConfig);
+                
+                result.Success = echoResult.IsSuccess;
+                result.Message = echoResult.Message;
+                result.ResponseTime = echoResult.Duration;
+                
+                // Update PACS status in database
+                await _pacsConfigRepository.UpdateAsync(pacsConfig);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error verifying PACS connection for node {NodeId}", request.PacsNodeId);
+                result.Success = false;
+                result.Message = ex.Message;
+            }
+            
+            return result;
         }
     }
 }
