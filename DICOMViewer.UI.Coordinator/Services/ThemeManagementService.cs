@@ -1,91 +1,64 @@
 using Prism.Events;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using System.Windows;
+using System.Threading.Tasks;
 using TheSSS.DICOMViewer.Presentation.Coordinator.Constants;
 using TheSSS.DICOMViewer.Presentation.Coordinator.Events;
 using TheSSS.DICOMViewer.Presentation.Coordinator.Interfaces.Services;
-using TheSSS.DICOMViewer.Presentation.Coordinator.Models;
+using TheSSS.DICOMViewer.Common.Interfaces;
 
 namespace TheSSS.DICOMViewer.Presentation.Coordinator.Services
 {
     public class ThemeManagementService : IThemeManagementService
     {
         private readonly IEventAggregator _eventAggregator;
-        private readonly IViewStateManagementService _viewStateService;
-        private ResourceDictionary _currentThemeDictionary;
-        private ResourceDictionary _highContrastDictionary;
+        private readonly IViewStateRepository _settingsRepository;
+        private readonly ILoggerAdapter _logger;
+        private ThemeType _currentTheme = ThemeType.Light;
 
-        public ThemeManagementService(
-            IEventAggregator eventAggregator,
-            IViewStateManagementService viewStateService)
+        public ThemeManagementService(IEventAggregator eventAggregator, IViewStateRepository settingsRepository, ILoggerAdapter logger)
         {
             _eventAggregator = eventAggregator;
-            _viewStateService = viewStateService;
+            _settingsRepository = settingsRepository;
+            _logger = logger;
         }
 
-        public ThemeType GetCurrentTheme()
-        {
-            return Application.Current.Resources.MergedDictionaries
-                .OfType<ResourceDictionary>()
-                .First(rd => rd.Source?.ToString().Contains("Theme.") ?? false)
-                .Source.ToString().Contains("Dark") ? ThemeType.Dark : ThemeType.Light;
-        }
-
-        public bool IsHighContrastActive()
-        {
-            return _highContrastDictionary != null;
-        }
+        public ThemeType GetCurrentTheme() => _currentTheme;
 
         public async Task SetThemeAsync(ThemeType themeType)
         {
-            var themeFile = themeType switch
-            {
+            if (_currentTheme == themeType) return;
+            
+            _currentTheme = themeType;
+            ApplyThemeResources(themeType);
+            _eventAggregator.GetEvent<ThemeChangedEvent>().Publish(_currentTheme);
+            await SaveThemeSettingsAsync();
+        }
+
+        private void ApplyThemeResources(ThemeType themeType)
+        {
+            var appResources = Application.Current.Resources;
+            appResources.MergedDictionaries.Clear();
+            
+            var themePath = themeType switch {
                 ThemeType.Dark => "Theme.Dark.xaml",
-                ThemeType.Light => "Theme.Light.xaml",
+                ThemeType.HighContrast => "Theme.HighContrast.xaml",
                 _ => "Theme.Light.xaml"
             };
-
-            var newTheme = new ResourceDictionary { Source = new System.Uri($"/Resources/Styles/{themeFile}", System.UriKind.Relative) };
-
-            Application.Current.Resources.MergedDictionaries.Remove(_currentThemeDictionary);
-            Application.Current.Resources.MergedDictionaries.Add(newTheme);
-            _currentThemeDictionary = newTheme;
-
-            _eventAggregator.GetEvent<ThemeChangedEvent>().Publish(themeType);
-            await SaveCurrentThemeSettings();
-        }
-
-        public async Task SetHighContrastModeAsync(bool isActive)
-        {
-            if (isActive)
-            {
-                _highContrastDictionary = new ResourceDictionary { Source = new System.Uri("/Resources/Styles/Theme.HighContrast.xaml", System.UriKind.Relative) };
-                Application.Current.Resources.MergedDictionaries.Add(_highContrastDictionary);
-            }
-            else
-            {
-                Application.Current.Resources.MergedDictionaries.Remove(_highContrastDictionary);
-                _highContrastDictionary = null;
-            }
-
-            _eventAggregator.GetEvent<HighContrastModeChangedEvent>().Publish(isActive);
-            await SaveCurrentThemeSettings();
-        }
-
-        private async Task SaveCurrentThemeSettings()
-        {
-            var settings = new ThemeSettings
-            {
-                CurrentTheme = GetCurrentTheme(),
-                IsHighContrastActive = IsHighContrastActive()
-            };
-
-            await _viewStateService.SaveApplicationStateAsync(new ApplicationSettings
-            {
-                Theme = settings
+            
+            appResources.MergedDictionaries.Add(new ResourceDictionary {
+                Source = new Uri($"/TheSSS.DICOMViewer.Presentation.Coordinator;component/Resources/Styles/{themePath}", UriKind.Relative)
             });
         }
+
+        private async Task SaveThemeSettingsAsync()
+        {
+            var settings = await _settingsRepository.LoadApplicationSettingsAsync() ?? new ApplicationSettings();
+            settings.CurrentThemeSettings.CurrentTheme = _currentTheme;
+            await _settingsRepository.SaveApplicationSettingsAsync(settings);
+        }
+
+        public Task LoadThemeSettingsAsync() => Task.CompletedTask;
+        public bool IsHighContrastActive() => _currentTheme == ThemeType.HighContrast;
+        public Task SetHighContrastModeAsync(bool isActive) => SetThemeAsync(isActive ? ThemeType.HighContrast : ThemeType.Light);
     }
 }

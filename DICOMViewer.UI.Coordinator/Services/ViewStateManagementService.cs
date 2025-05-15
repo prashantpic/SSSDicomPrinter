@@ -1,52 +1,35 @@
 using System.Threading.Tasks;
-using TheSSS.DICOMViewer.Presentation.Coordinator.Interfaces.Repositories;
 using TheSSS.DICOMViewer.Presentation.Coordinator.Interfaces.Services;
+using TheSSS.DICOMViewer.Presentation.Coordinator.Interfaces.Repositories;
 using TheSSS.DICOMViewer.Presentation.Coordinator.Models;
+using TheSSS.DICOMViewer.Common.Interfaces;
 
 namespace TheSSS.DICOMViewer.Presentation.Coordinator.Services
 {
     public class ViewStateManagementService : IViewStateManagementService
     {
         private readonly IViewStateRepository _repository;
-        private ApplicationSettings _applicationSettings = new();
+        private readonly ILoggerAdapter _logger;
 
-        public ViewStateManagementService(IViewStateRepository repository)
+        public ViewStateManagementService(IViewStateRepository repository, ILoggerAdapter logger)
         {
             _repository = repository;
+            _logger = logger;
         }
 
-        public async Task SaveApplicationStateAsync(ApplicationSettings settings)
-        {
-            _applicationSettings = settings;
-            await _repository.SaveStateAsync("ApplicationSettings", settings);
-        }
+        public Task SaveStateAsync(string viewIdentifier, ViewState state)
+            => _repository.SaveStateAsync(viewIdentifier, state);
 
-        public async Task<ApplicationSettings?> LoadApplicationStateAsync()
-        {
-            _applicationSettings = await _repository.LoadStateAsync("ApplicationSettings") ?? new ApplicationSettings();
-            return _applicationSettings;
-        }
+        public Task<ViewState> LoadStateAsync(string viewIdentifier)
+            => _repository.LoadStateAsync(viewIdentifier);
 
-        public async Task SaveStateAsync(string viewIdentifier, ViewState state)
-        {
-            _applicationSettings.ViewStates ??= new Dictionary<string, ViewState>();
-            _applicationSettings.ViewStates[viewIdentifier] = state;
-            await SaveApplicationStateAsync(_applicationSettings);
-        }
+        public Task ClearStateAsync(string viewIdentifier)
+            => _repository.ClearStateAsync(viewIdentifier);
 
-        public async Task<ViewState?> LoadStateAsync(string viewIdentifier)
-        {
-            await LoadApplicationStateAsync();
-            return _applicationSettings.ViewStates?.TryGetValue(viewIdentifier, out var state) == true ? state : null;
-        }
+        public Task SaveApplicationStateAsync(ApplicationSettings settings)
+            => _repository.SaveApplicationSettingsAsync(settings);
 
-        public async Task ClearStateAsync(string viewIdentifier)
-        {
-            if (_applicationSettings.ViewStates?.ContainsKey(viewIdentifier) == true)
-            {
-                _applicationSettings.ViewStates.Remove(viewIdentifier);
-                await SaveApplicationStateAsync(_applicationSettings);
-            }
-        }
+        public Task<ApplicationSettings> LoadApplicationStateAsync()
+            => _repository.LoadApplicationSettingsAsync();
     }
 }

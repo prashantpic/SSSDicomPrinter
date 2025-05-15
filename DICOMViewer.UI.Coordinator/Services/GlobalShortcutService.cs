@@ -1,68 +1,44 @@
-using System;
-using System.Collections.Generic;
 using System.Windows.Input;
-using System.Windows.Interop;
 using Prism.Events;
 using TheSSS.DICOMViewer.Presentation.Coordinator.Events;
 using TheSSS.DICOMViewer.Presentation.Coordinator.Interfaces.Services;
+using TheSSS.DICOMViewer.Common.Interfaces;
 
 namespace TheSSS.DICOMViewer.Presentation.Coordinator.Services
 {
     public class GlobalShortcutService : IGlobalShortcutService
     {
         private readonly IEventAggregator _eventAggregator;
-        private readonly Dictionary<KeyGesture, Action<object?>> _shortcuts = new();
-        private HwndSource? _source;
+        private readonly Dictionary<KeyGesture, Action<object>> _shortcuts = new();
 
-        public GlobalShortcutService(IEventAggregator eventAggregator)
+        public GlobalShortcutService(IEventAggregator eventAggregator, ILoggerAdapter logger)
         {
             _eventAggregator = eventAggregator;
         }
 
-        public void RegisterShortcut(KeyGesture keyGesture, Action<object?> callback, object? callbackParameter = null)
+        public void RegisterShortcut(KeyGesture gesture, Action<object> callback, object parameter = null)
         {
-            _shortcuts[keyGesture] = callback;
+            _shortcuts[gesture] = callback;
+            InputManager.Current.PreProcessInput += HandleInput;
         }
 
-        public void UnregisterShortcut(KeyGesture keyGesture)
+        private void HandleInput(object sender, PreProcessInputEventArgs e)
         {
-            _shortcuts.Remove(keyGesture);
-        }
-
-        public void StartListening()
-        {
-            var window = Application.Current.MainWindow;
-            if (window == null) return;
-
-            var handle = new WindowInteropHelper(window).Handle;
-            _source = HwndSource.FromHwnd(handle);
-            _source?.AddHook(HwndHook);
-        }
-
-        public void StopListening()
-        {
-            _source?.RemoveHook(HwndHook);
-            _source = null;
-        }
-
-        private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-        {
-            if (msg == 0x0100) // WM_KEYDOWN
+            if (e.StagingItem.Input is KeyEventArgs keyArgs && keyArgs.KeyboardDevice.IsKeyDown(keyArgs.Key))
             {
-                var key = KeyInterop.KeyFromVirtualKey((int)wParam);
-                foreach (var (gesture, callback) in _shortcuts)
+                foreach (var (gesture, action) in _shortcuts)
                 {
-                    if (gesture.Key == key && Keyboard.Modifiers == gesture.Modifiers)
+                    if (gesture.Matches(null, keyArgs))
                     {
-                        callback(null);
-                        _eventAggregator.GetEvent<GlobalShortcutActivatedEvent>()
-                            .Publish(gesture.GetDisplayStringForCulture(CultureInfo.CurrentCulture));
-                        handled = true;
-                        break;
+                        action.Invoke(null);
+                        keyArgs.Handled = true;
                     }
                 }
             }
-            return IntPtr.Zero;
         }
+
+        public void UnregisterShortcut(KeyGesture gesture) => _shortcuts.Remove(gesture);
+        public void StartListening() { }
+        public void StopListening() => InputManager.Current.PreProcessInput -= HandleInput;
     }
 }

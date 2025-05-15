@@ -9,20 +9,14 @@ namespace TheSSS.DICOMViewer.Presentation.Coordinator.Services
         private readonly IEventAggregator _eventAggregator;
         private readonly IThemeManagementService _themeService;
 
-        public AccessibilityCoordinatorService(
-            IEventAggregator eventAggregator,
-            IThemeManagementService themeService)
+        public AccessibilityCoordinatorService(IEventAggregator eventAggregator, IThemeManagementService themeService)
         {
             _eventAggregator = eventAggregator;
             _themeService = themeService;
         }
 
         public bool IsHighContrastModeActive() => _themeService.IsHighContrastActive();
-
-        public void SetHighContrastMode(bool isActive)
-        {
-            _themeService.SetHighContrastModeAsync(isActive).Wait();
-            _eventAggregator.GetEvent<HighContrastModeChangedEvent>().Publish(isActive);
-        }
+        public void SetHighContrastMode(bool isActive) => _themeService.SetHighContrastModeAsync(isActive);
+        public void NotifyHighContrastChanged(bool isActive) => _eventAggregator.GetEvent<HighContrastModeChangedEvent>().Publish(isActive);
     }
 }
