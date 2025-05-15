@@ -1,22 +1,20 @@
-using System;
 using System.Threading;
 using System.Threading.Tasks;
-using TheSSS.DICOMViewer.Integration.Models; // Assuming DTOs are in this namespace
+using TheSSS.DICOMViewer.Integration.Models;
 
-namespace TheSSS.DICOMViewer.Integration.Interfaces
+namespace TheSSS.DICOMViewer.Integration.Interfaces;
+
+/// <summary>
+/// Defines the contract for sending license validation requests to the Odoo API 
+/// and processing its specific responses, including handling Odoo-specific error formats.
+/// </summary>
+public interface IOdooApiAdapter
 {
     /// <summary>
-    /// Interface for adapters responsible for direct communication with the Odoo Licensing API,
-    /// handling request formation and response parsing.
+    /// Validates a license with the Odoo API.
     /// </summary>
-    public interface IOdooApiAdapter
-    {
-        /// <summary>
-        /// Sends a license validation request to the Odoo API and processes the response.
-        /// </summary>
-        /// <param name="request">The Odoo license request DTO.</param>
-        /// <param name="cancellationToken">Cancellation token.</param>
-        /// <returns>The raw Odoo license response DTO.</returns>
-        Task<OdooLicenseResponseDto> ValidateLicenseAsync(OdooLicenseRequestDto request, CancellationToken cancellationToken = default);
-    }
+    /// <param name="request">The license request data.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>A task representing the asynchronous operation, with the Odoo API response.</returns>
+    Task<OdooLicenseResponseDto> ValidateLicenseAsync(OdooLicenseRequestDto request, CancellationToken cancellationToken = default);
 }

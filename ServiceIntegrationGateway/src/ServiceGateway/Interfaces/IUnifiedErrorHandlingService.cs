@@ -1,30 +1,27 @@
 using System;
-using TheSSS.DICOMViewer.Integration.Models; // Assuming ServiceErrorDto is in this namespace
+using TheSSS.DICOMViewer.Integration.Models;
 
-namespace TheSSS.DICOMViewer.Integration.Interfaces
+namespace TheSSS.DICOMViewer.Integration.Interfaces;
+
+/// <summary>
+/// Defines a contract for converting service-specific exceptions or error responses 
+/// into a standardized ServiceErrorDto.
+/// </summary>
+public interface IUnifiedErrorHandlingService
 {
     /// <summary>
-    /// Interface for a service that normalizes errors from different external services
-    /// into a common format.
+    /// Handles an exception, converting it into a standardized error DTO.
     /// </summary>
-    public interface IUnifiedErrorHandlingService
-    {
-        /// <summary>
-        /// Handles an exception thrown during an external service interaction, normalizing it into a ServiceErrorDto.
-        /// Logs the original exception details.
-        /// </summary>
-        /// <param name="exception">The exception that occurred.</param>
-        /// <param name="serviceIdentifier">A string identifying the service where the error occurred (e.g., "Odoo", "SMTP", "DICOM").</param>
-        /// <returns>A standardized ServiceErrorDto.</returns>
-        ServiceErrorDto HandleError(Exception exception, string serviceIdentifier);
+    /// <param name="exception">The exception that occurred.</param>
+    /// <param name="serviceIdentifier">A string identifying the service where the error originated.</param>
+    /// <returns>A standardized service error DTO.</returns>
+    ServiceErrorDto HandleError(Exception exception, string serviceIdentifier);
 
-        /// <summary>
-        /// Handles an error response object received from an external service API, normalizing it into a ServiceErrorDto.
-        /// Logs the original error response details.
-        /// </summary>
-        /// <param name="errorResponse">The service-specific error response object.</param>
-        /// <param name="serviceIdentifier">A string identifying the service where the error occurred.</param>
-        /// <returns>A standardized ServiceErrorDto.</returns>
-        ServiceErrorDto HandleErrorResponse(object errorResponse, string serviceIdentifier);
-    }
+    /// <summary>
+    /// Handles a service-specific error response object, converting it into a standardized error DTO.
+    /// </summary>
+    /// <param name="errorResponse">The raw error response object from the external service.</param>
+    /// <param name="serviceIdentifier">A string identifying the service where the error originated.</param>
+    /// <returns>A standardized service error DTO.</returns>
+    ServiceErrorDto HandleErrorResponse(object errorResponse, string serviceIdentifier);
 }
