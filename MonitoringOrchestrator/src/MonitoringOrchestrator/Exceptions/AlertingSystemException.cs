@@ -1,71 +1,63 @@
 using System;
-using System.Runtime.Serialization;
 
-namespace TheSSS.DICOMViewer.Monitoring.Exceptions
+namespace TheSSS.DICOMViewer.Monitoring.Exceptions;
+
+/// <summary>
+/// Exception thrown for errors occurring within the alert dispatching system.
+/// </summary>
+[Serializable]
+public class AlertingSystemException : MonitoringOrchestratorException
 {
     /// <summary>
-    /// Exception thrown for errors occurring within the alert dispatching system.
+    /// The type of alerting channel that failed.
     /// </summary>
-    [Serializable]
-    public class AlertingSystemException : MonitoringOrchestratorException
+    public string ChannelType { get; } = string.Empty;
+
+    /// <summary>
+    /// The name of the triggered rule associated with the failed alert dispatch.
+    /// </summary>
+    public string? TriggeredRuleName { get; }
+
+
+    public AlertingSystemException() { }
+
+    public AlertingSystemException(string message) : base(message) { }
+
+    public AlertingSystemException(string message, Exception inner) : base(message, inner) { }
+
+     public AlertingSystemException(string channelType, string message)
+        : base($"Alert dispatch failed for channel '{channelType}': {message}")
     {
-        /// <summary>
-        /// Gets the type of the channel that failed, if applicable.
-        /// </summary>
-        public string? ChannelType { get; }
+        ChannelType = channelType;
+    }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AlertingSystemException"/> class.
-        /// </summary>
-        public AlertingSystemException()
-        {
-        }
+    public AlertingSystemException(string channelType, string triggeredRuleName, string message)
+       : base($"Alert dispatch failed for channel '{channelType}' (Rule: '{triggeredRuleName}'): {message}")
+   {
+       ChannelType = channelType;
+       TriggeredRuleName = triggeredRuleName;
+   }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AlertingSystemException"/> class with a specified error message
-        /// and an optional channel type.
-        /// </summary>
-        /// <param name="message">The message that describes the error.</param>
-        /// <param name="channelType">The type of the channel that failed.</param>
-        public AlertingSystemException(string message, string? channelType = null)
-            : base(message)
-        {
-            ChannelType = channelType;
-        }
+    public AlertingSystemException(string channelType, string triggeredRuleName, string message, Exception inner)
+        : base($"Alert dispatch failed for channel '{channelType}' (Rule: '{triggeredRuleName}'): {message}", inner)
+    {
+        ChannelType = channelType;
+        TriggeredRuleName = triggeredRuleName;
+    }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AlertingSystemException"/> class with a specified error message,
-        /// a reference to the inner exception that is the cause of this exception, and an optional channel type.
-        /// </summary>
-        /// <param name="message">The error message that explains the reason for the exception.</param>
-        /// <param name="innerException">The exception that is the cause of the current exception, or a null reference if no inner exception is specified.</param>
-        /// <param name="channelType">The type of the channel that failed.</param>
-        public AlertingSystemException(string message, Exception innerException, string? channelType = null)
-            : base(message, innerException)
-        {
-            ChannelType = channelType;
-        }
-        
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AlertingSystemException"/> class with serialized data.
-        /// </summary>
-        /// <param name="info">The <see cref="SerializationInfo"/> that holds the serialized object data about the exception being thrown.</param>
-        /// <param name="context">The <see cref="StreamingContext"/> that contains contextual information about the source or destination.</param>
-        protected AlertingSystemException(SerializationInfo info, StreamingContext context)
-            : base(info, context)
-        {
-            ChannelType = info.GetString("ChannelType");
-        }
 
-        /// <summary>
-        /// Sets the <see cref="SerializationInfo"/> with information about the exception.
-        /// </summary>
-        /// <param name="info">The <see cref="SerializationInfo"/> that holds the serialized object data about the exception being thrown.</param>
-        /// <param name="context">The <see cref="StreamingContext"/> that contains contextual information about the source or destination.</param>
-        public override void GetObjectData(SerializationInfo info, StreamingContext context)
-        {
-            base.GetObjectData(info, context);
-            info.AddValue("ChannelType", ChannelType);
-        }
+    protected AlertingSystemException(
+        System.Runtime.Serialization.SerializationInfo info,
+        System.Runtime.Serialization.StreamingContext context) : base(info, context)
+    {
+        ChannelType = info.GetString(nameof(ChannelType)) ?? string.Empty;
+        TriggeredRuleName = info.GetString(nameof(TriggeredRuleName));
+    }
+
+     public override void GetObjectData(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context)
+    {
+        base.GetObjectData(info, context);
+        info.AddValue(nameof(ChannelType), ChannelType);
+        info.AddValue(nameof(TriggeredRuleName), TriggeredRuleName);
     }
 }

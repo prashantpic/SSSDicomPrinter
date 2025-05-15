@@ -1,99 +1,42 @@
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using TheSSS.DICOMViewer.Monitoring.Configuration;
 using TheSSS.DICOMViewer.Monitoring.Contracts;
 using TheSSS.DICOMViewer.Monitoring.Exceptions;
 using TheSSS.DICOMViewer.Monitoring.Interfaces;
-using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Linq;
-using System.Collections.Generic;
+using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters; // Assuming ILoggerAdapter and IUiNotificationAdapter
 
-namespace TheSSS.DICOMViewer.Monitoring.Alerting.Channels
+namespace TheSSS.DICOMViewer.Monitoring.Alerting.Channels;
+
+public class UiNotificationChannel : IAlertingChannel
 {
-    /// <summary>
-    /// Implementation of <see cref="IAlertingChannel"/> for sending alerts to the UI.
-    /// Dispatches alerts for display within the application UI to administrative roles.
-    /// </summary>
-    public class UiNotificationChannel : IAlertingChannel
+    private readonly IUiNotificationAdapter _uiNotificationAdapter;
+    private readonly ILoggerAdapter<UiNotificationChannel> _logger;
+
+    public UiNotificationChannel(IUiNotificationAdapter uiNotificationAdapter, ILoggerAdapter<UiNotificationChannel> logger)
     {
-        private const string ChannelTypeValue = "UI";
-        private readonly IUiNotificationAdapter _uiNotificationAdapter;
-        private readonly IOptions<AlertingOptions> _alertingOptions;
-        private readonly ILogger<UiNotificationChannel> _logger;
-        private static readonly Dictionary<string, int> SeverityOrder = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-        {
-            { "Information", 1 },
-            { "Warning", 2 },
-            { "Error", 3 },
-            { "Critical", 4 }
-        };
+        _uiNotificationAdapter = uiNotificationAdapter;
+        _logger = logger;
+    }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="UiNotificationChannel"/> class.
-        /// </summary>
-        /// <param name="uiNotificationAdapter">The adapter for sending UI notifications.</param>
-        /// <param name="alertingOptions">The alerting configuration options.</param>
-        /// <param name="logger">The logger.</param>
-        public UiNotificationChannel(
-            IUiNotificationAdapter uiNotificationAdapter,
-            IOptions<AlertingOptions> alertingOptions,
-            ILogger<UiNotificationChannel> logger)
+    /// <inheritdoc/>
+    public async Task DispatchAlertAsync(NotificationPayloadDto payload, CancellationToken cancellationToken)
+    {
+         _logger.Debug($"Attempting to dispatch UI notification: '{payload.Title}'");
+
+        try
         {
-            _uiNotificationAdapter = uiNotificationAdapter ?? throw new ArgumentNullException(nameof(uiNotificationAdapter));
-            _alertingOptions = alertingOptions ?? throw new ArgumentNullException(nameof(alertingOptions));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            // UI notifications typically don't need a cancellation token passed down to the adapter
+            // as the adapter might interact with an event bus or fire-and-forget mechanism.
+            // We still accept it in the interface method signature for consistency.
+            await _uiNotificationAdapter.SendUiNotificationAsync(payload);
+            _logger.Info("Successfully dispatched UI notification.");
         }
-
-        /// <inheritdoc/>
-        public async Task DispatchAlertAsync(NotificationPayloadDto payload, CancellationToken cancellationToken)
+        catch (Exception ex)
         {
-            var uiChannelSetting = _alertingOptions.Value.Channels
-                .FirstOrDefault(c => ChannelTypeValue.Equals(c.ChannelType, StringComparison.OrdinalIgnoreCase) && c.IsEnabled);
-
-            if (uiChannelSetting == null)
-            {
-                _logger.LogDebug("UI notification channel is not configured or not enabled.");
-                return;
-            }
-            
-            if (!IsSeveritySufficient(payload.Severity, uiChannelSetting.MinimumSeverity))
-            {
-                 _logger.LogInformation("Alert severity '{PayloadSeverity}' for rule '{RuleName}' on component '{SourceComponent}' does not meet minimum '{MinimumSeverity}' for UI channel. Skipping.",
-                    payload.Severity, payload.Title, payload.SourceComponent, uiChannelSetting.MinimumSeverity);
-                return;
-            }
-
-            _logger.LogInformation("Dispatching alert via UI Notification: {Title}", payload.Title);
-
-            try
-            {
-                await _uiNotificationAdapter.SendUiNotificationAsync(payload);
-                _logger.LogInformation("Successfully sent UI notification for: {Title}", payload.Title);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send UI notification for: {Title}", payload.Title);
-                throw new AlertingSystemException($"Failed to send UI notification: {ex.Message}", ex, ChannelTypeValue);
-            }
-        }
-        
-        private bool IsSeveritySufficient(string payloadSeverity, string? minimumSeverity)
-        {
-            if (string.IsNullOrEmpty(minimumSeverity))
-            {
-                return true; 
-            }
-
-            if (SeverityOrder.TryGetValue(payloadSeverity, out int payloadSeverityValue) &&
-                SeverityOrder.TryGetValue(minimumSeverity, out int minimumSeverityValue))
-            {
-                return payloadSeverityValue >= minimumSeverityValue;
-            }
-            _logger.LogWarning("Could not compare severities for UI Channel: Payload='{PayloadSeverity}', Minimum='{MinimumSeverity}'. Assuming insufficient.", payloadSeverity, minimumSeverity);
-            return false; 
+            _logger.Error(ex, "Failed to send UI notification.");
+            // Wrap specific UI notification errors in AlertingSystemException
+            throw new AlertingSystemException(payload.TargetChannelType, payload.Title, "UI notification dispatch failed.", ex);
         }
     }
 }

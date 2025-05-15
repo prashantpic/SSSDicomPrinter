@@ -1,51 +1,45 @@
-using Microsoft.Extensions.Logging;
-using TheSSS.DICOMViewer.Monitoring.Interfaces;
-using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
-using TheSSS.DICOMViewer.Monitoring.Exceptions;
-using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Linq;
+using Microsoft.Extensions.Logging;
+using TheSSS.DICOMViewer.Monitoring.Contracts;
+using TheSSS.DICOMViewer.Monitoring.Exceptions;
+using TheSSS.DICOMViewer.Monitoring.Interfaces;
+using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters; // Assuming ILoggerAdapter
+using System.Linq; // Added for .Count()
 
-namespace TheSSS.DICOMViewer.Monitoring.HealthDataSources
+namespace TheSSS.DICOMViewer.Monitoring.HealthDataSources;
+
+public class AutomatedTaskStatusDataSource : IHealthDataSource
 {
-    /// <summary>
-    /// Implementation of <see cref="IHealthDataSource"/> for monitoring automated task statuses.
-    /// Provides status information for key automated tasks such as data purging or backups.
-    /// </summary>
-    public class AutomatedTaskStatusDataSource : IHealthDataSource
+    private readonly IAutomatedTaskAdapter _automatedTaskAdapter;
+    private readonly ILoggerAdapter<AutomatedTaskStatusDataSource> _logger;
+
+    public AutomatedTaskStatusDataSource(IAutomatedTaskAdapter automatedTaskAdapter, ILoggerAdapter<AutomatedTaskStatusDataSource> logger)
     {
-        private readonly IAutomatedTaskAdapter _automatedTaskAdapter;
-        private readonly ILogger<AutomatedTaskStatusDataSource> _logger;
+        _automatedTaskAdapter = automatedTaskAdapter;
+        _logger = logger;
+    }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AutomatedTaskStatusDataSource"/> class.
-        /// </summary>
-        /// <param name="automatedTaskAdapter">The adapter for retrieving automated task statuses.</param>
-        /// <param name="logger">The logger.</param>
-        public AutomatedTaskStatusDataSource(
-            IAutomatedTaskAdapter automatedTaskAdapter,
-            ILogger<AutomatedTaskStatusDataSource> logger)
+    /// <inheritdoc/>
+    public async Task<object> GetHealthDataAsync(CancellationToken cancellationToken)
+    {
+        _logger.Debug("Collecting automated task status data via adapter.");
+        try
         {
-            _automatedTaskAdapter = automatedTaskAdapter ?? throw new ArgumentNullException(nameof(automatedTaskAdapter));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            var statuses = await _automatedTaskAdapter.GetAutomatedTaskStatusesAsync(cancellationToken);
+            _logger.Debug($"Successfully collected automated task status data for {statuses.Count()} tasks.");
+            return statuses; // Return IEnumerable<AutomatedTaskStatusInfoDto>
         }
-
-        /// <inheritdoc/>
-        public async Task<object> GetHealthDataAsync(CancellationToken cancellationToken)
+        catch (DataSourceUnavailableException ex)
         {
-            try
-            {
-                _logger.LogDebug("Fetching automated task statuses.");
-                var taskStatuses = await _automatedTaskAdapter.GetAutomatedTaskStatusesAsync(cancellationToken);
-                _logger.LogDebug("Successfully fetched {Count} automated task statuses.", taskStatuses?.Count() ?? 0);
-                return taskStatuses ?? Enumerable.Empty<Contracts.AutomatedTaskStatusInfoDto>();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to retrieve automated task statuses.");
-                throw new DataSourceUnavailableException("Failed to retrieve automated task statuses.", ex, nameof(AutomatedTaskStatusDataSource));
-            }
+            _logger.Error(ex, "Automated task status data source adapter reported unavailable.");
+            throw; // Re-throw DataSourceUnavailableException
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "An unexpected error occurred while getting automated task status data.");
+            throw new DataSourceUnavailableException(nameof(AutomatedTaskStatusDataSource), "Failed to retrieve automated task status data due to an internal error.", ex);
         }
     }
 }

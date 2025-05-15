@@ -1,57 +1,48 @@
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using TheSSS.DICOMViewer.Monitoring.Configuration;
-using TheSSS.DICOMViewer.Monitoring.Interfaces;
-using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
-using TheSSS.DICOMViewer.Monitoring.Exceptions;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using TheSSS.DICOMViewer.Monitoring.Configuration;
+using TheSSS.DICOMViewer.Monitoring.Contracts;
+using TheSSS.DICOMViewer.Monitoring.Exceptions;
+using TheSSS.DICOMViewer.Monitoring.Interfaces;
+using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters; // Assuming ILoggerAdapter
 
-namespace TheSSS.DICOMViewer.Monitoring.HealthDataSources
+namespace TheSSS.DICOMViewer.Monitoring.HealthDataSources;
+
+public class SystemErrorDataSource : IHealthDataSource
 {
-    /// <summary>
-    /// Implementation of <see cref="IHealthDataSource"/> for monitoring critical system errors.
-    /// Provides summaries of recent critical system errors logged by the application.
-    /// </summary>
-    public class SystemErrorDataSource : IHealthDataSource
+    private readonly ISystemErrorLogAdapter _systemErrorLogAdapter;
+    private readonly ILoggerAdapter<SystemErrorDataSource> _logger;
+    private readonly MonitoringOptions _monitoringOptions; // To get lookback period
+
+    public SystemErrorDataSource(ISystemErrorLogAdapter systemErrorLogAdapter, ILoggerAdapter<SystemErrorDataSource> logger, IOptions<MonitoringOptions> monitoringOptions)
     {
-        private readonly ISystemErrorLogAdapter _systemErrorLogAdapter;
-        private readonly IOptions<MonitoringOptions> _monitoringOptions;
-        private readonly ILogger<SystemErrorDataSource> _logger;
+        _systemErrorLogAdapter = systemErrorLogAdapter;
+        _logger = logger;
+        _monitoringOptions = monitoringOptions.Value;
+    }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="SystemErrorDataSource"/> class.
-        /// </summary>
-        /// <param name="systemErrorLogAdapter">The adapter for retrieving system error summaries.</param>
-        /// <param name="monitoringOptions">The monitoring configuration options.</param>
-        /// <param name="logger">The logger.</param>
-        public SystemErrorDataSource(
-            ISystemErrorLogAdapter systemErrorLogAdapter,
-            IOptions<MonitoringOptions> monitoringOptions,
-            ILogger<SystemErrorDataSource> logger)
+    /// <inheritdoc/>
+    public async Task<object> GetHealthDataAsync(CancellationToken cancellationToken)
+    {
+        _logger.Debug($"Collecting system error summary data (last {_monitoringOptions.ErrorLogLookbackPeriod}) via adapter.");
+        try
         {
-            _systemErrorLogAdapter = systemErrorLogAdapter ?? throw new ArgumentNullException(nameof(systemErrorLogAdapter));
-            _monitoringOptions = monitoringOptions ?? throw new ArgumentNullException(nameof(monitoringOptions));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            var summary = await _systemErrorLogAdapter.GetCriticalErrorSummaryAsync(_monitoringOptions.ErrorLogLookbackPeriod, cancellationToken);
+            _logger.Debug($"Successfully collected system error summary. Critical count: {summary.CriticalErrorCountLast24Hours}");
+            return summary; // Return SystemErrorInfoSummaryDto
         }
-
-        /// <inheritdoc/>
-        public async Task<object> GetHealthDataAsync(CancellationToken cancellationToken)
+        catch (DataSourceUnavailableException ex)
         {
-            try
-            {
-                var lookbackWindow = _monitoringOptions.Value.SystemErrorLookbackWindow;
-                _logger.LogDebug("Fetching system error summary for the last {LookbackWindow}.", lookbackWindow);
-                var errorSummary = await _systemErrorLogAdapter.GetCriticalErrorSummaryAsync(lookbackWindow, cancellationToken);
-                _logger.LogDebug("Successfully fetched system error summary. Critical errors: {CriticalCount}", errorSummary.CriticalErrorCountLast24Hours);
-                return errorSummary;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to retrieve system error summary.");
-                throw new DataSourceUnavailableException("Failed to retrieve system error summary.", ex, nameof(SystemErrorDataSource));
-            }
+            _logger.Error(ex, "System error log data source adapter reported unavailable.");
+            throw; // Re-throw DataSourceUnavailableException
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "An unexpected error occurred while getting system error summary.");
+            throw new DataSourceUnavailableException(nameof(SystemErrorDataSource), "Failed to retrieve system error summary due to an internal error.", ex);
         }
     }
 }
