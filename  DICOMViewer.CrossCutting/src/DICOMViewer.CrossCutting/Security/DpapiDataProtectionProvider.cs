@@ -1,8 +1,10 @@
-namespace TheSSS.DICOMViewer.Common.Security
+namespace TheSSS.DICOMViewer.Common.Security;
+
+public class DpapiDataProtectionProvider : IDataProtectionProvider
 {
-    public class DpapiDataProtectionProvider : TheSSS.DICOMViewer.Common.Abstractions.Security.IDataProtectionProvider
-    {
-        public byte[] ProtectData(byte[] plaintext) => ProtectedData.Protect(plaintext, null, DataProtectionScope.CurrentUser);
-        public byte[] UnprotectData(byte[] ciphertext) => ProtectedData.Unprotect(ciphertext, null, DataProtectionScope.CurrentUser);
-    }
+    public byte[] ProtectData(byte[] plaintext) => 
+        ProtectedData.Protect(plaintext, null, DataProtectionScope.CurrentUser);
+
+    public byte[] UnprotectData(byte[] ciphertext) => 
+        ProtectedData.Unprotect(ciphertext, null, DataProtectionScope.CurrentUser);
 }

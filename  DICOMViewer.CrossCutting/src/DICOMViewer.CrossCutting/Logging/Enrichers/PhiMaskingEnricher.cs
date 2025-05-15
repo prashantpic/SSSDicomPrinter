@@ -1,24 +1,23 @@
-namespace TheSSS.DICOMViewer.Common.Logging.Enrichers
+namespace TheSSS.DICOMViewer.Common.Logging.Enrichers;
+
+public class PhiMaskingEnricher : ILogEventEnricher
 {
-    public class PhiMaskingEnricher : ILogEventEnricher
+    private static readonly HashSet<string> SensitivePropertyNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        private static readonly HashSet<string> _phiKeywords = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "PatientId", "PatientName", "PatientBirthDate", "PatientSex",
-            "AccessionNumber", "StudyInstanceUID", "SeriesInstanceUID", "SOPInstanceUID"
-        };
+        "User", "PatientId", "AccessionNumber", "PatientName", "DOB", 
+        "Address", "Phone", "Email", "PHI", "Password", "Key", "Secret"
+    };
 
-        public void Enrich(LogEvent logEvent, ILogEventPropertyFactory propertyFactory)
-        {
-            var properties = logEvent.Properties.ToDictionary(p => p.Key, p => p.Value);
+    public void Enrich(LogEvent logEvent, ILogEventPropertyFactory propertyFactory)
+    {
+        var properties = logEvent.Properties.ToDictionary(p => p.Key, p => p.Value);
 
-            foreach (var prop in properties)
+        foreach (var property in properties)
+        {
+            if (SensitivePropertyNames.Contains(property.Key))
             {
-                if (_phiKeywords.Contains(prop.Key))
-                {
-                    var maskedProp = propertyFactory.CreateProperty(prop.Key, "[PHI_REDACTED]");
-                    logEvent.AddOrUpdateProperty(maskedProp);
-                }
+                var maskedProperty = propertyFactory.CreateProperty(property.Key, "[PHI_REDACTED]");
+                logEvent.AddOrUpdateProperty(maskedProperty);
             }
         }
     }

@@ -1,8 +1,7 @@
-namespace TheSSS.DICOMViewer.Common.Configuration.Models
+namespace TheSSS.DICOMViewer.Common.Configuration.Models;
+
+public class OdooApiSettings
 {
-    public class OdooApiSettings
-    {
-        public string BaseUrl { get; set; } = string.Empty;
-        public string? ApiKey { get; set; }
-    }
+    public string BaseUrl { get; set; } = null!;
+    public string? ApiKey { get; set; }
 }

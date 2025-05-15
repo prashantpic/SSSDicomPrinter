@@ -1,8 +1,7 @@
-namespace TheSSS.DICOMViewer.Common.Abstractions.Security
+namespace TheSSS.DICOMViewer.Common.Abstractions.Security;
+
+public interface IDataProtectionProvider
 {
-    public interface IDataProtectionProvider
-    {
-        byte[] ProtectData(byte[] plaintext);
-        byte[] UnprotectData(byte[] ciphertext);
-    }
+    byte[] ProtectData(byte[] plaintext);
+    byte[] UnprotectData(byte[] ciphertext);
 }

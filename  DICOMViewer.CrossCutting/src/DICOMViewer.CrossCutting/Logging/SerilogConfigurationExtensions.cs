@@ -1,18 +1,18 @@
-namespace TheSSS.DICOMViewer.Common.Logging
-{
-    public static class SerilogConfigurationExtensions
-    {
-        public static IServiceCollection AddConfiguredSerilog(this IServiceCollection services, IConfiguration configuration)
-        {
-            var loggerConfiguration = new LoggerConfiguration()
-                .ReadFrom.Configuration(configuration)
-                .Enrich.With<Enrichers.PhiMaskingEnricher>();
+namespace TheSSS.DICOMViewer.Common.Logging;
 
-            var logger = loggerConfiguration.CreateLogger();
-            services.AddSingleton<Serilog.ILogger>(logger);
-            services.AddSingleton<TheSSS.DICOMViewer.Common.Abstractions.Logging.ILoggerAdapter, SerilogAdapter>();
-            
-            return services;
-        }
+public static class SerilogConfigurationExtensions
+{
+    public static IServiceCollection AddConfiguredSerilog(this IServiceCollection services, IConfiguration configuration)
+    {
+        var loggerConfiguration = new LoggerConfiguration()
+            .ReadFrom.Configuration(configuration)
+            .Enrich.With<PhiMaskingEnricher>();
+
+        Log.Logger = loggerConfiguration.CreateLogger();
+        
+        services.AddSingleton(Log.Logger);
+        services.AddSingleton<ILoggerAdapter, SerilogAdapter>();
+        
+        return services;
     }
 }
