@@ -1,12 +1,12 @@
 using Microsoft.Extensions.Logging;
 using QuestPDF.Fluent;
-using QuestPDF.Infrastructure;
+using QuestPDF.Helpers;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 using TheSSS.DicomViewer.Pdf.Interfaces;
-using TheSSS.DicomViewer.Pdf.Internal.Documents;
 using TheSSS.DicomViewer.Pdf.Models;
+using TheSSS.DicomViewer.Pdf.Internal.Documents;
 
 namespace TheSSS.DicomViewer.Pdf
 {
@@ -20,12 +20,29 @@ namespace TheSSS.DicomViewer.Pdf
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
-        public async Task<byte[]> GeneratePdfAsync(PdfDocumentDataSource documentSource, PdfGenerationOptions options, IProgress<PdfGenerationProgress> progress, CancellationToken cancellationToken)
+        public Task<byte[]> GeneratePdfAsync(PdfDocumentDataSource documentSource, PdfGenerationOptions options, IProgress<PdfGenerationProgress> progress, CancellationToken cancellationToken)
         {
-            return await Task.Run(() =>
+            return Task.Run(() =>
             {
-                var document = new DicomPdfDocument(documentSource, options, progress, cancellationToken);
-                return Document.Create(container => document.Compose(container)).GeneratePdf();
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var pdfDocument = new DicomPdfDocument(documentSource, options, progress, cancellationToken);
+                    byte[] pdfBytes = Document.Create(pdfDocument.Compose).GeneratePdf();
+                    progress?.Report(new PdfGenerationProgress { PercentageComplete = 100, StatusMessage = "Completed" });
+                    return pdfBytes;
+                }
+                catch (OperationCanceledException)
+                {
+                    progress?.Report(new PdfGenerationProgress { StatusMessage = "Cancelled" });
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "PDF generation error");
+                    progress?.Report(new PdfGenerationProgress { StatusMessage = $"Error: {ex.Message}" });
+                    throw;
+                }
             }, cancellationToken);
         }
     }

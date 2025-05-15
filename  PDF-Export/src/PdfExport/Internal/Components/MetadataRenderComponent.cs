@@ -23,26 +23,41 @@ namespace TheSSS.DicomViewer.Pdf.Internal.Components
             if (_embeddingOptions?.Mode == MetadataEmbeddingMode.None || _metadataCollection == null)
                 return;
 
-            var tags = _embeddingOptions.Mode switch
+            var tags = GetFilteredTags();
+            if (!tags.Any()) return;
+
+            container.Column(col =>
+            {
+                col.Spacing(5);
+                col.Item().Text("DICOM Metadata").FontSize(10).Bold();
+                foreach (var tag in tags)
+                {
+                    col.Item().Text($"{tag.Key}: {tag.Value}").FontSize(9);
+                }
+            });
+        }
+
+        private Dictionary<string, string> GetFilteredTags()
+        {
+            var filtered = new Dictionary<string, string>();
+            var tagsToCheck = _embeddingOptions.Mode switch
             {
                 MetadataEmbeddingMode.StandardSubset => _embeddingOptions.StandardSubsetKeys,
                 MetadataEmbeddingMode.CustomList => _embeddingOptions.CustomTagsToEmbed,
                 _ => null
             };
 
-            if (tags?.Any() != true) return;
-
-            container.Column(column =>
+            if (tagsToCheck != null)
             {
-                column.Spacing(5);
-                column.Item().Text("DICOM Metadata").Bold().FontSize(10);
-                
-                foreach (var tag in tags)
+                foreach (var tag in tagsToCheck)
                 {
                     if (_metadataCollection.TryGetValue($"{tag.Group:X4}{tag.Element:X4}", out var value))
-                        column.Item().Text($"{tag.Name}: {value}").FontSize(9);
+                    {
+                        filtered[tag.Name] = value;
+                    }
                 }
-            });
+            }
+            return filtered;
         }
     }
 }

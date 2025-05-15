@@ -16,7 +16,9 @@ namespace TheSSS.DicomViewer.Pdf.Internal.Components
         public void Compose(IContainer container)
         {
             if (_imageDataSource.ImageData?.Length > 0)
+            {
                 container.Image(_imageDataSource.ImageData).FitArea();
+            }
         }
     }
 }
