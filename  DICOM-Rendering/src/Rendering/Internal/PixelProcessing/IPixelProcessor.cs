@@ -1,9 +1,9 @@
 using SkiaSharp;
+using TheSSS.DicomViewer.Rendering;
 
-namespace TheSSS.DicomViewer.Rendering.Internal.PixelProcessing
+namespace TheSSS.DicomViewer.Rendering.Internal.PixelProcessing;
+
+public interface IPixelProcessor
 {
-    internal interface IPixelProcessor
-    {
-        SKBitmap ProcessFrameToSkBitmap(RenderableDicomFrame dicomFrame, RenderingOptions options);
-    }
+    SKBitmap ProcessFrameToSkBitmap(RenderableDicomFrame dicomFrame, RenderingOptions options);
 }
