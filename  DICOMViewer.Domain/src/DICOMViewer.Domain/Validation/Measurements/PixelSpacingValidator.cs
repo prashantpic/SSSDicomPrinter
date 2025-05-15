@@ -7,10 +7,10 @@ public class PixelSpacingValidator : AbstractValidator<PixelSpacing>
 {
     public PixelSpacingValidator()
     {
-        RuleFor(ps => ps.RowSpacing)
-            .GreaterThan(0).WithMessage("Row spacing must be greater than zero");
+        RuleFor(x => x.RowSpacing)
+            .GreaterThan(0).WithMessage("Row spacing must be positive");
         
-        RuleFor(ps => ps.ColumnSpacing)
-            .GreaterThan(0).WithMessage("Column spacing must be greater than zero");
+        RuleFor(x => x.ColumnSpacing)
+            .GreaterThan(0).WithMessage("Column spacing must be positive");
     }
 }

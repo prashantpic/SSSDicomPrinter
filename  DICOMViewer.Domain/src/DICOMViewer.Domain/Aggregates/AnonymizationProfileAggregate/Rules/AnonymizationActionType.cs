@@ -6,5 +6,6 @@ public enum AnonymizationActionType
     ReplaceWithFixedValue,
     Hash,
     DateOffset,
-    Clean
+    Clean,
+    Keep
 }

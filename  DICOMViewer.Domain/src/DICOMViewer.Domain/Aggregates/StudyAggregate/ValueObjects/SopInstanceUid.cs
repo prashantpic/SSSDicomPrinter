@@ -1,23 +1,29 @@
-using FluentValidation;
 using TheSSS.DICOMViewer.Domain.Exceptions;
-using TheSSS.DICOMViewer.Domain.Validation;
+using System.Text.RegularExpressions;
 
 namespace TheSSS.DICOMViewer.Domain.Aggregates.StudyAggregate.ValueObjects;
 
-public record SopInstanceUid(string Value)
+public record struct SopInstanceUid
 {
-    public static SopInstanceUid Create(string value)
-    {
-        var validator = new SopInstanceUidValidator();
-        var result = validator.Validate(value);
-        
-        if (!result.IsValid)
-        {
-            throw new InvalidDicomIdentifierException(nameof(SopInstanceUid), value, result.Errors);
-        }
-
-        return new SopInstanceUid(value);
-    }
+    private static readonly Regex ValidUidRegex = new(@"^[0-9\.]+$", RegexOptions.Compiled);
     
+    public string Value { get; }
+
+    private SopInstanceUid(string value) => Value = value;
+
+    public static SopInstanceUid Create(string uid)
+    {
+        if (string.IsNullOrWhiteSpace(uid))
+            throw new InvalidDicomIdentifierException("SOP Instance UID cannot be empty", uid);
+
+        if (uid.Length > 64)
+            throw new InvalidDicomIdentifierException("SOP Instance UID exceeds 64 characters", uid);
+
+        if (!ValidUidRegex.IsMatch(uid))
+            throw new InvalidDicomIdentifierException("Invalid SOP Instance UID format", uid);
+
+        return new SopInstanceUid(uid);
+    }
+
     public override string ToString() => Value;
 }

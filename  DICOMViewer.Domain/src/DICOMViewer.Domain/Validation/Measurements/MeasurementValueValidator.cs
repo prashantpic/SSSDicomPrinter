@@ -7,13 +7,11 @@ public class MeasurementValueValidator : AbstractValidator<MeasurementValue>
 {
     public MeasurementValueValidator()
     {
-        RuleFor(mv => mv.Unit)
+        RuleFor(x => x.Value)
+            .GreaterThanOrEqualTo(0).When(x => x.Unit != MeasurementUnit.Degrees)
+            .WithMessage("Measurement value must be non-negative");
+        
+        RuleFor(x => x.Unit)
             .IsInEnum().WithMessage("Invalid measurement unit");
-
-        When(mv => mv.Unit == MeasurementUnit.Millimeters || mv.Unit == MeasurementUnit.SquareMillimeters, () => 
-        {
-            RuleFor(mv => mv.Value)
-                .GreaterThanOrEqualTo(0).WithMessage("Measurement value cannot be negative");
-        });
     }
 }
