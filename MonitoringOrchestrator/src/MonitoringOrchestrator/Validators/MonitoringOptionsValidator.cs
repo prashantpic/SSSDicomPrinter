@@ -1,18 +1,22 @@
 using FluentValidation;
 using TheSSS.DICOMViewer.Monitoring.Configuration;
+using System;
 
-namespace TheSSS.DICOMViewer.Monitoring.Validators;
-
-public class MonitoringOptionsValidator : AbstractValidator<MonitoringOptions>
+namespace TheSSS.DICOMViewer.Monitoring.Validators
 {
-    public MonitoringOptionsValidator()
+    public class MonitoringOptionsValidator : AbstractValidator<MonitoringOptions>
     {
-        RuleFor(x => x.SystemHealthCheckInterval)
-            .GreaterThan(TimeSpan.Zero)
-            .WithMessage("Health check interval must be positive");
+        public MonitoringOptionsValidator()
+        {
+            RuleFor(x => x.SystemHealthCheckInterval)
+                .GreaterThan(TimeSpan.Zero)
+                .WithMessage("SystemHealthCheckInterval must be a positive time span.");
 
-        RuleFor(x => x.CriticalErrorLookbackPeriod)
-            .GreaterThan(TimeSpan.Zero)
-            .WithMessage("Error lookback period must be positive");
+            RuleFor(x => x.CriticalErrorLookbackPeriod)
+                .GreaterThan(TimeSpan.Zero)
+                .WithMessage("CriticalErrorLookbackPeriod must be a positive time span.");
+
+            // IsMonitoringEnabled is a boolean, usually no validation needed unless specific requirements.
+        }
     }
 }
