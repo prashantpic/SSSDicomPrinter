@@ -1,0 +1,36 @@
+<Window x:Class="DICOMViewer.UI.Coordinator.ShellWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:prism="http://prismlibrary.com/"
+        xmlns:constants="clr-namespace:DICOMViewer.UI.Coordinator.Constants"
+        Title="{Binding Title}" Height="800" Width="1200">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Top Menu Bar -->
+        <Menu Grid.Row="0">
+            <MenuItem Header="{DynamicResource FileMenu}">
+                <MenuItem Command="{Binding ExitApplicationCommand}" Header="{DynamicResource ExitMenu}"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- Main Content Region -->
+        <ContentControl prism:RegionManager.RegionName="{x:Static constants:RegionNames.MainContentRegion}" 
+                      Grid.Row="1" />
+
+        <!-- Status Bar -->
+        <StatusBar Grid.Row="2">
+            <StatusBarItem>
+                <TextBlock Text="{Binding CurrentTheme}"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding CurrentLanguage}"/>
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window>
