@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -39,5 +38,4 @@
     <ProjectReference Include="..\Application\TheSSS.DicomViewer.Application.csproj" />
     <ProjectReference Include="..\CrossCutting\TheSSS.DicomViewer.Common.csproj" />
   </ItemGroup>
-
 </Project>
