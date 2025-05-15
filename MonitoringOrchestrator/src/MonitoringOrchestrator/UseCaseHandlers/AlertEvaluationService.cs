@@ -3,99 +3,94 @@ using TheSSS.DICOMViewer.Monitoring.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Generic;
-using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers;
 
 public class AlertEvaluationService
 {
-    private readonly AlertingOptions _options;
-    private readonly AlertDispatchService _dispatchService;
+    private readonly AlertingOptions _alertingOptions;
+    private readonly AlertDispatchService _alertDispatchService;
     private readonly ILogger<AlertEvaluationService> _logger;
-    private readonly Dictionary<string, int> _failureCounts = new();
+    private readonly Dictionary<string, int> _consecutiveFailures = new();
 
     public AlertEvaluationService(
-        IOptions<AlertingOptions> options,
-        AlertDispatchService dispatchService,
+        IOptions<AlertingOptions> alertingOptions,
+        AlertDispatchService alertDispatchService,
         ILogger<AlertEvaluationService> logger)
     {
-        _options = options.Value;
-        _dispatchService = dispatchService;
+        _alertingOptions = alertingOptions.Value;
+        _alertDispatchService = alertDispatchService;
         _logger = logger;
     }
 
-    public async Task EvaluateHealthReportAsync(HealthReportDto report)
+    public async Task EvaluateHealthReportAsync(HealthReportDto healthReport, CancellationToken cancellationToken)
     {
-        var alerts = new List<AlertContextDto>();
-        
-        foreach (var rule in _options.Rules)
+        foreach (var rule in _alertingOptions.Rules)
         {
-            var key = $"{rule.MetricType}-{rule.SubMetricIdentifier}";
-            var shouldAlert = EvaluateRule(rule, report, key);
+            var ruleKey = $"{rule.RuleName}-{rule.MetricType}";
+            var conditionMet = EvaluateRule(rule, healthReport, out var triggeringData);
 
-            if (shouldAlert)
+            if (conditionMet)
             {
-                alerts.Add(CreateAlertContext(rule, report));
-                ResetFailureCount(key);
+                _consecutiveFailures[ruleKey] = _consecutiveFailures.TryGetValue(ruleKey, out var count) ? count + 1 : 1;
+                
+                if (_consecutiveFailures[ruleKey] >= rule.ConsecutiveFailuresToAlert)
+                {
+                    var context = CreateAlertContext(rule, triggeringData);
+                    await _alertDispatchService.DispatchAlertAsync(context, cancellationToken);
+                    _consecutiveFailures[ruleKey] = 0;
+                }
             }
             else
             {
-                IncrementFailureCount(key);
+                _consecutiveFailures.Remove(ruleKey);
             }
         }
-
-        foreach (var alert in alerts)
-        {
-            await _dispatchService.DispatchAlertAsync(alert);
-        }
     }
 
-    private bool EvaluateRule(AlertRule rule, HealthReportDto report, string key)
+    private bool EvaluateRule(AlertRule rule, HealthReportDto report, out object? triggeringData)
     {
+        triggeringData = null;
         return rule.MetricType switch
         {
-            "StorageUsage" => report.StorageHealth?.UsedPercentage >= rule.ThresholdValue,
-            "DatabaseConnectivity" => report.DatabaseHealth?.IsConnected == false,
-            "PACSConnectivity" => report.PacsConnections?.Any(p => p.PacsNodeId == rule.SubMetricIdentifier && !p.IsConnected) == true,
-            "LicenseStatus" => report.LicenseStatus?.IsValid == false,
-            "SystemErrors" => report.SystemErrorSummary?.CriticalErrorCountLast24Hours >= rule.ThresholdValue,
+            "StorageUsagePercent" => CheckStorageRule(rule, report, ref triggeringData),
+            "DatabaseConnectivity" => CheckDatabaseRule(rule, report, ref triggeringData),
+            "PacsConnectivity" => CheckPacsRule(rule, report, ref triggeringData),
+            "LicenseStatus" => CheckLicenseRule(rule, report, ref triggeringData),
             _ => false
-        } && _failureCounts.GetValueOrDefault(key, 0) >= rule.ConsecutiveFailuresToAlert;
+        };
     }
 
-    private AlertContextDto CreateAlertContext(AlertRule rule, HealthReportDto report)
+    private bool CheckStorageRule(AlertRule rule, HealthReportDto report, ref object? data)
+    {
+        if (report.StorageHealth == null) return false;
+        data = report.StorageHealth;
+        return rule.ComparisonOperator switch
+        {
+            "GreaterThan" => report.StorageHealth.UsedPercentage > rule.ThresholdValue,
+            _ => false
+        };
+    }
+
+    private bool CheckDatabaseRule(AlertRule rule, HealthReportDto report, ref object? data)
+    {
+        if (report.DatabaseHealth == null) return false;
+        data = report.DatabaseHealth;
+        return rule.ExpectedStatus?.ToLower() == report.DatabaseHealth.IsConnected.ToString().ToLower();
+    }
+
+    private AlertContextDto CreateAlertContext(AlertRule rule, object? data)
     {
         return new AlertContextDto
         {
             TriggeredRuleName = rule.RuleName,
             Severity = Enum.Parse<AlertSeverity>(rule.Severity),
+            Timestamp = DateTime.UtcNow,
             SourceComponent = "MonitoringOrchestrator",
-            Message = $"Alert triggered: {rule.RuleName}",
-            RawData = GetRelevantData(rule, report)
+            Message = $"Condition met for {rule.MetricType}",
+            RawData = data
         };
-    }
-
-    private object GetRelevantData(AlertRule rule, HealthReportDto report)
-    {
-        return rule.MetricType switch
-        {
-            "StorageUsage" => report.StorageHealth,
-            "DatabaseConnectivity" => report.DatabaseHealth,
-            "PACSConnectivity" => report.PacsConnections?.FirstOrDefault(p => p.PacsNodeId == rule.SubMetricIdentifier),
-            "LicenseStatus" => report.LicenseStatus,
-            "SystemErrors" => report.SystemErrorSummary,
-            _ => null
-        };
-    }
-
-    private void IncrementFailureCount(string key)
-    {
-        _failureCounts[key] = _failureCounts.GetValueOrDefault(key, 0) + 1;
-    }
-
-    private void ResetFailureCount(string key)
-    {
-        _failureCounts.Remove(key);
     }
 }

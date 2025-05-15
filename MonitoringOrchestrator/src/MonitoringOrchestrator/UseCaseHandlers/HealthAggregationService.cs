@@ -30,12 +30,12 @@ public class HealthAggregationService
             OverallStatus = OverallHealthStatus.Unknown
         };
 
-        var dataTasks = _dataSources.Select(CollectDataSourceData);
-        var results = await Task.WhenAll(dataTasks);
+        var tasks = _dataSources.Select(source => CollectDataSourceDataAsync(source, cancellationToken)).ToList();
+        var results = await Task.WhenAll(tasks);
 
         foreach (var result in results)
         {
-            try
+            if (result.Success)
             {
                 switch (result.Data)
                 {
@@ -59,27 +59,24 @@ public class HealthAggregationService
                         break;
                 }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing data from {DataSource}", result.SourceName);
-            }
         }
 
         report.OverallStatus = DetermineOverallStatus(report);
         return report;
     }
 
-    private async Task<(string SourceName, object Data)> CollectDataSourceData(IHealthDataSource source)
+    private async Task<(bool Success, object? Data, string SourceName)> CollectDataSourceDataAsync(
+        IHealthDataSource source, CancellationToken cancellationToken)
     {
         try
         {
-            var data = await source.GetHealthDataAsync(CancellationToken.None);
-            return (source.Name, data);
+            var data = await source.GetHealthDataAsync(cancellationToken);
+            return (true, data, source.Name);
         }
-        catch (Exception ex)
+        catch (DataSourceUnavailableException ex)
         {
-            _logger.LogError(ex, "Failed to collect data from {DataSource}", source.Name);
-            throw new DataSourceUnavailableException(source.Name, ex.Message, ex);
+            _logger.LogWarning(ex, "Data source {DataSource} unavailable", source.Name);
+            return (false, null, source.Name);
         }
     }
 
@@ -87,10 +84,10 @@ public class HealthAggregationService
     {
         if (report.DatabaseHealth?.IsConnected == false) return OverallHealthStatus.Error;
         if (report.LicenseStatus?.IsValid == false) return OverallHealthStatus.Error;
-        if (report.StorageHealth?.UsedPercentage >= 90) return OverallHealthStatus.Warning;
+        if (report.StorageHealth?.UsedPercentage > 90) return OverallHealthStatus.Warning;
         if (report.PacsConnections?.Any(p => !p.IsConnected) == true) return OverallHealthStatus.Warning;
-        return report.SystemErrorSummary?.CriticalErrorCountLast24Hours > 0 
-            ? OverallHealthStatus.Error 
-            : OverallHealthStatus.Healthy;
+        if (report.SystemErrorSummary?.CriticalErrorCountLast24Hours > 0) return OverallHealthStatus.Critical;
+        
+        return OverallHealthStatus.Healthy;
     }
 }

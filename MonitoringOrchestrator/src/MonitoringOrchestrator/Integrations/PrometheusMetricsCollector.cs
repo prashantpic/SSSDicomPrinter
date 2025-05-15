@@ -1,35 +1,57 @@
 using Prometheus;
 using TheSSS.DICOMViewer.Monitoring.Contracts;
+using Microsoft.Extensions.Logging;
 
 namespace TheSSS.DICOMViewer.Monitoring.Integrations;
 
 public class PrometheusMetricsCollector
 {
-    private static readonly Gauge _storageUsage = Metrics.CreateGauge(
-        "dicom_storage_used_percent", 
-        "Percentage of storage space used");
+    private static readonly Gauge _storageFree = Metrics.CreateGauge(
+        "dicom_storage_free_bytes", 
+        "Free storage space in bytes");
         
-    private static readonly Gauge _dbStatus = Metrics.CreateGauge(
-        "database_connected",
+    private static readonly Gauge _storageUsed = Metrics.CreateGauge(
+        "dicom_storage_used_percent", 
+        "Percentage of storage used");
+
+    private static readonly Gauge _dbConnected = Metrics.CreateGauge(
+        "database_connected", 
         "Database connection status");
 
-    private static readonly Gauge _pacsStatus = Metrics.CreateGauge(
-        "pacs_connected",
-        "PACS node connectivity status",
-        new GaugeConfiguration { LabelNames = new[] { "node" } });
+    private static readonly Gauge _licenseValid = Metrics.CreateGauge(
+        "license_valid", 
+        "License validity status");
 
-    private static readonly Gauge _licenseStatus = Metrics.CreateGauge(
-        "license_valid",
-        "Application license validity");
+    private readonly ILogger<PrometheusMetricsCollector> _logger;
+
+    public PrometheusMetricsCollector(ILogger<PrometheusMetricsCollector> logger)
+    {
+        _logger = logger;
+    }
 
     public void UpdateMetrics(HealthReportDto report)
     {
-        _storageUsage.Set(report.StorageHealth?.UsedPercentage ?? -1);
-        _dbStatus.Set(report.DatabaseHealth?.IsConnected == true ? 1 : 0);
-        
-        report.PacsConnections?.ForEach(p => 
-            _pacsStatus.WithLabels(p.PacsNodeId).Set(p.IsConnected ? 1 : 0));
-            
-        _licenseStatus.Set(report.LicenseStatus?.IsValid == true ? 1 : 0);
+        try
+        {
+            if (report.StorageHealth != null)
+            {
+                _storageFree.Set(report.StorageHealth.FreeSpaceBytes);
+                _storageUsed.Set(report.StorageHealth.UsedPercentage);
+            }
+
+            if (report.DatabaseHealth != null)
+            {
+                _dbConnected.Set(report.DatabaseHealth.IsConnected ? 1 : 0);
+            }
+
+            if (report.LicenseStatus != null)
+            {
+                _licenseValid.Set(report.LicenseStatus.IsValid ? 1 : 0);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update Prometheus metrics");
+        }
     }
 }
