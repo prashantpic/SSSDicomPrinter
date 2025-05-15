@@ -1,5 +1,6 @@
-namespace TheSSS.DICOMViewer.Domain.Interfaces;
 using TheSSS.DICOMViewer.Domain.ValueObjects;
+
+namespace TheSSS.DICOMViewer.Domain.Interfaces;
 
 public interface IDicomDatasetAdapter
 {
@@ -8,4 +9,5 @@ public interface IDicomDatasetAdapter
     void RemoveElement(DicomTagPath tagPath);
     PixelSpacing? GetPixelSpacing();
     string? GetSopInstanceUid();
+    bool AnonymizeTag(DicomTagPath tagPath, AnonymizationActionType actionType, params object?[] parameters);
 }

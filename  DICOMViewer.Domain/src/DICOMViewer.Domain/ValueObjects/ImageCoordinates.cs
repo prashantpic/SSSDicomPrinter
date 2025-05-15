@@ -1,12 +1,6 @@
 namespace TheSSS.DICOMViewer.Domain.ValueObjects;
-public readonly record struct ImageCoordinates
-{
-    public double X { get; }
-    public double Y { get; }
 
-    public ImageCoordinates(double x, double y)
-    {
-        X = x;
-        Y = y;
-    }
+public record struct ImageCoordinates(double X, double Y)
+{
+    public override string ToString() => $"({X:F1}, {Y:F1})";
 }

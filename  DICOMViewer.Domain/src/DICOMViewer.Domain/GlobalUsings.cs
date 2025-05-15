@@ -1,12 +1,6 @@
-global using System;
-global using System.Collections.Generic;
-global using System.Linq;
-global using System.Threading.Tasks;
 global using FluentValidation;
-global using TheSSS.DICOMViewer.Domain.Validation;
+global using FluentValidation.Results;
 global using TheSSS.DICOMViewer.Domain.Exceptions;
 global using TheSSS.DICOMViewer.Domain.Interfaces;
 global using TheSSS.DICOMViewer.Domain.ValueObjects;
-global using TheSSS.DICOMViewer.Domain.Aggregates.PatientAggregate;
-global using TheSSS.DICOMViewer.Domain.Aggregates.StudyAggregate;
-global using TheSSS.DICOMViewer.Domain.Aggregates.AnonymizationProfileAggregate;
+global using TheSSS.DICOMViewer.Domain.ValueObjects.Measurements;

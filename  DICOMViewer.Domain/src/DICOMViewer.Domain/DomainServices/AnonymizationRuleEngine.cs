@@ -1,31 +1,57 @@
-using System.Threading.Tasks;
-using DICOMViewer.Domain.Interfaces;
-using DICOMViewer.Domain.Aggregates.AnonymizationProfileAggregate;
-using DICOMViewer.Domain.Aggregates.AnonymizationProfileAggregate.Rules;
+using TheSSS.DICOMViewer.Domain.Aggregates.AnonymizationProfileAggregate;
+using TheSSS.DICOMViewer.Domain.Aggregates.AnonymizationProfileAggregate.Rules;
+using TheSSS.DICOMViewer.Domain.Interfaces;
 
-namespace DICOMViewer.Domain.DomainServices
+namespace TheSSS.DICOMViewer.Domain.DomainServices;
+
+public class AnonymizationRuleEngine
 {
-    public class AnonymizationRuleEngine
+    private readonly ILoggerAdapter _logger;
+
+    public AnonymizationRuleEngine(ILoggerAdapter logger)
     {
-        public async Task ApplyProfileAsync(IDicomDatasetAdapter dataset, AnonymizationProfile profile)
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    public void ApplyProfile(IDicomDatasetAdapter datasetAdapter, AnonymizationProfile profile)
+    {
+        if (datasetAdapter == null) throw new ArgumentNullException(nameof(datasetAdapter));
+        if (profile == null) throw new ArgumentNullException(nameof(profile));
+
+        foreach (var rule in profile.Rules)
         {
-            foreach (var rule in profile.Rules)
+            try
             {
-                switch (rule.ActionType)
-                {
-                    case AnonymizationActionType.Remove:
-                        dataset.RemoveElement(rule.TagPath);
-                        break;
-                        
-                    case AnonymizationActionType.ReplaceWithFixedValue:
-                        if (string.IsNullOrEmpty(rule.ReplacementValue))
-                            throw new BusinessRuleViolationException("Replacement value required for Replace action");
-                        
-                        dataset.SetString(rule.TagPath, rule.ReplacementValue);
-                        break;
-                }
+                ApplyRule(datasetAdapter, rule);
             }
-            await Task.CompletedTask;
+            catch (Exception ex)
+            {
+                _logger.Error(ex, $"Failed to apply rule for tag {rule.DicomTagPath}");
+                throw new DomainException($"Error applying rule for tag {rule.DicomTagPath}", ex);
+            }
+        }
+    }
+
+    private void ApplyRule(IDicomDatasetAdapter datasetAdapter, MetadataAnonymizationRule rule)
+    {
+        switch (rule.ActionType)
+        {
+            case AnonymizationActionType.Remove:
+                datasetAdapter.RemoveElement(rule.DicomTagPath);
+                break;
+            
+            case AnonymizationActionType.ReplaceWithFixedValue:
+                datasetAdapter.SetString(rule.DicomTagPath, rule.ReplacementValue!);
+                break;
+            
+            case AnonymizationActionType.Hash:
+            case AnonymizationActionType.DateOffset:
+            case AnonymizationActionType.Clean:
+                datasetAdapter.AnonymizeTag(rule.DicomTagPath, rule.ActionType, rule.ReplacementValue);
+                break;
+            
+            default:
+                throw new BusinessRuleViolationException($"Unsupported action type: {rule.ActionType}");
         }
     }
 }

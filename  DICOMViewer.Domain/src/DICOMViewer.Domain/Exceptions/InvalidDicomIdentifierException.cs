@@ -1,11 +1,12 @@
 namespace TheSSS.DICOMViewer.Domain.Exceptions;
+
 public class InvalidDicomIdentifierException : BusinessRuleViolationException
 {
-    public string InvalidIdentifier { get; }
-    
-    public InvalidDicomIdentifierException(string identifier, string message)
-        : base($"Invalid DICOM identifier '{identifier}': {message}")
-    {
-        InvalidIdentifier = identifier;
-    }
+    public string InvalidValue { get; }
+
+    public InvalidDicomIdentifierException(string message, string invalidValue) 
+        : base(message) => InvalidValue = invalidValue;
+
+    public InvalidDicomIdentifierException(string message, string invalidValue, Exception inner)
+        : base(message, inner) => InvalidValue = invalidValue;
 }

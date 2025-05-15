@@ -1,24 +1,14 @@
 namespace TheSSS.DICOMViewer.Domain.ValueObjects;
-public readonly record struct PixelSpacing
+
+public record struct PixelSpacing(double RowSpacing, double ColumnSpacing)
 {
-    public double RowSpacing { get; }
-    public double ColumnSpacing { get; }
-
-    private PixelSpacing(double rowSpacing, double columnSpacing)
+    public static PixelSpacing Create(double row, double column)
     {
-        RowSpacing = rowSpacing;
-        ColumnSpacing = columnSpacing;
-    }
-
-    public static PixelSpacing Create(double rowSpacing, double columnSpacing)
-    {
-        var spacing = new PixelSpacing(rowSpacing, columnSpacing);
-        var validator = new PixelSpacingValidator();
-        var result = validator.Validate(spacing);
+        if (row <= 0 || column <= 0)
+            throw new BusinessRuleViolationException("Pixel spacing values must be positive");
         
-        if (!result.IsValid)
-            throw new ValidationException(result.Errors);
-
-        return spacing;
+        return new PixelSpacing(row, column);
     }
+
+    public override string ToString() => $"{ColumnSpacing:F3}\\{RowSpacing:F3}";
 }
