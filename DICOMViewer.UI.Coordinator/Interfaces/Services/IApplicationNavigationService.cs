@@ -1,6 +1,6 @@
 using System.Threading.Tasks;
 
-namespace DICOMViewer.UI.Coordinator.Interfaces.Services
+namespace TheSSS.DICOMViewer.Presentation.Coordinator.Interfaces.Services
 {
     public interface IApplicationNavigationService
     {

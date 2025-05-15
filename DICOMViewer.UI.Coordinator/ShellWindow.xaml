@@ -1,36 +1,30 @@
-<Window x:Class="DICOMViewer.UI.Coordinator.ShellWindow"
+<Window x:Class="TheSSS.DICOMViewer.Presentation.Coordinator.Views.ShellWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:prism="http://prismlibrary.com/"
-        xmlns:constants="clr-namespace:DICOMViewer.UI.Coordinator.Constants"
-        Title="{Binding Title}" Height="800" Width="1200">
+        xmlns:constants="clr-namespace:TheSSS.DICOMViewer.Presentation.Coordinator.Constants"
+        prism:ViewModelLocator.AutoWireViewModel="True"
+        Title="{Binding WindowTitle}" Height="700" Width="1000">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        
-        <!-- Top Menu Bar -->
-        <Menu Grid.Row="0">
-            <MenuItem Header="{DynamicResource FileMenu}">
-                <MenuItem Command="{Binding ExitApplicationCommand}" Header="{DynamicResource ExitMenu}"/>
-            </MenuItem>
-        </Menu>
 
-        <!-- Main Content Region -->
-        <ContentControl prism:RegionManager.RegionName="{x:Static constants:RegionNames.MainContentRegion}" 
-                      Grid.Row="1" />
+        <DockPanel Grid.Row="0" LastChildFill="True">
+            <ContentControl prism:RegionManager.RegionName="{x:Static constants:RegionNames.ToolbarRegion}"
+                           DockPanel.Dock="Top" Height="30"/>
+            <ContentControl prism:RegionManager.RegionName="{x:Static constants:RegionNames.MenuRegion}"
+                           DockPanel.Dock="Top" Height="30"/>
+        </DockPanel>
 
-        <!-- Status Bar -->
-        <StatusBar Grid.Row="2">
-            <StatusBarItem>
-                <TextBlock Text="{Binding CurrentTheme}"/>
-            </StatusBarItem>
-            <Separator/>
-            <StatusBarItem>
-                <TextBlock Text="{Binding CurrentLanguage}"/>
-            </StatusBarItem>
-        </StatusBar>
+        <ContentControl Grid.Row="1" prism:RegionManager.RegionName="{x:Static constants:RegionNames.MainContentRegion}"
+                        Margin="5"/>
+
+        <Border Grid.Row="2" BorderThickness="0,1,0,0">
+            <ContentControl prism:RegionManager.RegionName="{x:Static constants:RegionNames.StatusBarRegion}"
+                           Height="24"/>
+        </Border>
     </Grid>
 </Window>

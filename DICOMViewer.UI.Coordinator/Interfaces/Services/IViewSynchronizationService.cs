@@ -1,6 +1,6 @@
-using DICOMViewer.UI.Coordinator.Models;
+using TheSSS.DICOMViewer.Presentation.Coordinator.Models;
 
-namespace DICOMViewer.UI.Coordinator.Interfaces.Services
+namespace TheSSS.DICOMViewer.Presentation.Coordinator.Interfaces.Services
 {
     public interface IViewSynchronizationService
     {

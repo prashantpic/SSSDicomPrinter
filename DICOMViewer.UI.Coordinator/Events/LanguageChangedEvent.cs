@@ -1,7 +1,7 @@
 using Prism.Events;
-using DICOMViewer.UI.Coordinator.Constants;
+using TheSSS.DICOMViewer.Presentation.Coordinator.Constants;
 
-namespace DICOMViewer.UI.Coordinator.Events
+namespace TheSSS.DICOMViewer.Presentation.Coordinator.Events
 {
     public class LanguageChangedEvent : PubSubEvent<LanguageCode> { }
 }

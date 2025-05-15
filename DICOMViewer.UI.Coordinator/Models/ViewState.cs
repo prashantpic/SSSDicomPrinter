@@ -1,9 +1,11 @@
-namespace DICOMViewer.UI.Coordinator.Models
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
+
+namespace TheSSS.DICOMViewer.Presentation.Coordinator.Models
 {
     public class ViewState
     {
-        public double ScrollOffsetX { get; set; }
-        public double ScrollOffsetY { get; set; }
-        public double ZoomFactor { get; set; }
+        [JsonPropertyName("stateData")]
+        public Dictionary<string, object> StateData { get; set; } = new Dictionary<string, object>();
     }
 }

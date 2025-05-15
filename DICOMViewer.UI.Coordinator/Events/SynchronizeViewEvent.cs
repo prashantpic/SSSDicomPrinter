@@ -1,7 +1,7 @@
 using Prism.Events;
-using DICOMViewer.UI.Coordinator.Models;
+using TheSSS.DICOMViewer.Presentation.Coordinator.Models;
 
-namespace DICOMViewer.UI.Coordinator.Events
+namespace TheSSS.DICOMViewer.Presentation.Coordinator.Events
 {
     public class SynchronizeViewEvent : PubSubEvent<SyncParameters> { }
 }

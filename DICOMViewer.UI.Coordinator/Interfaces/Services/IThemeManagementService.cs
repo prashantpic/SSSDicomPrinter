@@ -1,13 +1,14 @@
-using DICOMViewer.UI.Coordinator.Constants;
 using System.Threading.Tasks;
+using TheSSS.DICOMViewer.Presentation.Coordinator.Constants;
 
-namespace DICOMViewer.UI.Coordinator.Interfaces.Services
+namespace TheSSS.DICOMViewer.Presentation.Coordinator.Interfaces.Services
 {
     public interface IThemeManagementService
     {
         ThemeType GetCurrentTheme();
-        bool IsHighContrastActive();
         Task SetThemeAsync(ThemeType themeType);
+        bool IsHighContrastActive();
         Task SetHighContrastModeAsync(bool isActive);
+        Task LoadThemeSettingsAsync();
     }
 }

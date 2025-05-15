@@ -1,6 +1,6 @@
 using Prism.Events;
 
-namespace DICOMViewer.UI.Coordinator.Events
+namespace TheSSS.DICOMViewer.Presentation.Coordinator.Events
 {
     public class ToggleSynchronizationStateEvent : PubSubEvent<bool> { }
 }

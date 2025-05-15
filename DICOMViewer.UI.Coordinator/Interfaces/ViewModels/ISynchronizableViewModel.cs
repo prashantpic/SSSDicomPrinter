@@ -1,6 +1,6 @@
-using DICOMViewer.UI.Coordinator.Models;
+using TheSSS.DICOMViewer.Presentation.Coordinator.Models;
 
-namespace DICOMViewer.UI.Coordinator.Interfaces.ViewModels
+namespace TheSSS.DICOMViewer.Presentation.Coordinator.Interfaces.ViewModels
 {
     public interface ISynchronizableViewModel
     {

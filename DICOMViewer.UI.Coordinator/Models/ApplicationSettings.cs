@@ -1,9 +1,13 @@
-namespace DICOMViewer.UI.Coordinator.Models
+using System.Text.Json.Serialization;
+
+namespace TheSSS.DICOMViewer.Presentation.Coordinator.Models
 {
     public class ApplicationSettings
     {
-        public ThemeSettings Theme { get; set; }
-        public LanguageSetting Language { get; set; }
-        public Dictionary<string, ViewState> ViewStates { get; set; } = new Dictionary<string, ViewState>();
+        [JsonPropertyName("themeSettings")]
+        public ThemeSettings ThemeSettings { get; set; } = new ThemeSettings();
+        
+        [JsonPropertyName("languageSetting")]
+        public LanguageSetting LanguageSetting { get; set; } = new LanguageSetting();
     }
 }

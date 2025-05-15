@@ -1,11 +1,11 @@
-using DICOMViewer.UI.Coordinator.Constants;
+using TheSSS.DICOMViewer.Presentation.Coordinator.Constants;
 
-namespace DICOMViewer.UI.Coordinator.Interfaces.Services
+namespace TheSSS.DICOMViewer.Presentation.Coordinator.Interfaces.Services
 {
     public interface ILocalizationService
     {
         LanguageCode GetCurrentLanguage();
-        string GetString(string key);
         Task SetLanguageAsync(LanguageCode languageCode);
+        string GetString(string key);
     }
 }

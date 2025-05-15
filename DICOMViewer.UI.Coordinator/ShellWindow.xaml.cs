@@ -1,14 +1,12 @@
 using System.Windows;
-using DICOMViewer.UI.Coordinator.ViewModels;
 
-namespace DICOMViewer.UI.Coordinator
+namespace TheSSS.DICOMViewer.Presentation.Coordinator.Views
 {
     public partial class ShellWindow : Window
     {
-        public ShellWindow(ShellViewModel viewModel)
+        public ShellWindow()
         {
             InitializeComponent();
-            DataContext = viewModel;
         }
     }
 }
