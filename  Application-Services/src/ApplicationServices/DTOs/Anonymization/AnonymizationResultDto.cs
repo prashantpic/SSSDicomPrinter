@@ -1,11 +1,12 @@
-using System.Collections.Generic;
+using System;
 
 namespace TheSSS.DicomViewer.Application.DTOs.Anonymization
 {
     public record AnonymizationResultDto(
-        bool IsSuccessful,
+        bool Success,
+        string Message,
         string SourceSopInstanceUid,
         string AnonymizedSopInstanceUid,
-        string ErrorMessage,
-        List<string> ModifiedTags);
+        int ProfileIdUsed,
+        DateTime Timestamp);
 }

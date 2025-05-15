@@ -3,11 +3,12 @@ using System;
 namespace TheSSS.DicomViewer.Application.DTOs.Audit
 {
     public record AuditEventDto(
-        DateTimeOffset Timestamp,
+        DateTime Timestamp,
+        string UserIdentifier,
         string EventType,
-        string UserId,
         string Description,
-        string StudyInstanceUid,
-        string SopInstanceUid,
+        string Source,
+        string EntityType,
+        string EntityIdentifier,
         string DetailsJson);
 }

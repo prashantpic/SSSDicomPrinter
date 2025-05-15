@@ -6,11 +6,10 @@ namespace TheSSS.DicomViewer.Application.Interfaces.Persistence
 {
     public interface IInstanceRepository
     {
-        Task<Instance> GetBySopInstanceUidAsync(string sopInstanceUid, CancellationToken cancellationToken);
-        Task AddAsync(Instance instance, CancellationToken cancellationToken);
-        Task UpdateAsync(Instance instance, CancellationToken cancellationToken);
-        Task DeleteAsync(Instance instance, CancellationToken cancellationToken);
-        Task<List<string>> GetFilePathsBySopInstanceUidsAsync(IEnumerable<string> sopInstanceUids, CancellationToken cancellationToken);
-        Task UpdateStatusAsync(string sopInstanceUid, bool isAnonymized, CancellationToken cancellationToken);
+        Task<Domain.Models.Instance> GetBySopInstanceUidAsync(string sopInstanceUid, CancellationToken cancellationToken = default);
+        Task AddAsync(Domain.Models.Instance instance, CancellationToken cancellationToken = default);
+        Task UpdateAsync(Domain.Models.Instance instance, CancellationToken cancellationToken = default);
+        Task DeleteAsync(string sopInstanceUid, CancellationToken cancellationToken = default);
+        Task<IEnumerable<Domain.Models.Instance>> GetBySeriesInstanceUidAsync(string seriesInstanceUid, CancellationToken cancellationToken = default);
     }
 }

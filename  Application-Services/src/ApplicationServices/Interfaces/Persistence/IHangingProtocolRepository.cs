@@ -6,10 +6,10 @@ namespace TheSSS.DicomViewer.Application.Interfaces.Persistence
 {
     public interface IHangingProtocolRepository
     {
-        Task<HangingProtocol> GetByIdAsync(int protocolId, CancellationToken cancellationToken);
-        Task<List<HangingProtocol>> GetByUserIdentifierAsync(string userIdentifier, CancellationToken cancellationToken);
-        Task AddAsync(HangingProtocol protocol, CancellationToken cancellationToken);
-        Task UpdateAsync(HangingProtocol protocol, CancellationToken cancellationToken);
-        Task DeleteAsync(HangingProtocol protocol, CancellationToken cancellationToken);
+        Task<Domain.Models.HangingProtocol> GetByIdAsync(int protocolId, CancellationToken cancellationToken = default);
+        Task<IEnumerable<Domain.Models.HangingProtocol>> GetByUserIdentifierAsync(string userIdentifier, CancellationToken cancellationToken = default);
+        Task AddAsync(Domain.Models.HangingProtocol protocol, CancellationToken cancellationToken = default);
+        Task UpdateAsync(Domain.Models.HangingProtocol protocol, CancellationToken cancellationToken = default);
+        Task DeleteAsync(int protocolId, CancellationToken cancellationToken = default);
     }
 }

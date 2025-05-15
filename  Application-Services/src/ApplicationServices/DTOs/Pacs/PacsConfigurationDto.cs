@@ -1,5 +1,3 @@
-using System;
-
 namespace TheSSS.DicomViewer.Application.DTOs.Pacs
 {
     public record PacsConfigurationDto(
@@ -7,7 +5,8 @@ namespace TheSSS.DicomViewer.Application.DTOs.Pacs
         string AeTitle,
         string Host,
         int Port,
-        string Description,
+        string PeerAeTitle,
         bool IsDefault,
-        DateTimeOffset? LastSuccessfulConnection);
+        bool IsActive,
+        string Description);
 }

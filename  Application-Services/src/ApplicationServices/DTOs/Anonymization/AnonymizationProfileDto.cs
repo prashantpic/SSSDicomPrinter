@@ -6,6 +6,7 @@ namespace TheSSS.DicomViewer.Application.DTOs.Anonymization
         int Id,
         string Name,
         string Description,
-        Dictionary<string, string> TagRules,
-        List<int> PixelTemplateIds);
+        bool IsDefault,
+        List<AnonymizationRuleDto> Rules,
+        List<PixelAnonymizationTemplateDto> PixelTemplates);
 }

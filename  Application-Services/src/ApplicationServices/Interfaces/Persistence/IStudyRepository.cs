@@ -6,10 +6,10 @@ namespace TheSSS.DicomViewer.Application.Interfaces.Persistence
 {
     public interface IStudyRepository
     {
-        Task<Study> GetByStudyInstanceUidAsync(string studyInstanceUid, CancellationToken cancellationToken);
-        Task AddAsync(Study study, CancellationToken cancellationToken);
-        Task UpdateAsync(Study study, CancellationToken cancellationToken);
-        Task DeleteAsync(Study study, CancellationToken cancellationToken);
-        Task<List<Study>> GetByPatientIdAsync(string patientId, CancellationToken cancellationToken);
+        Task<Domain.Models.Study> GetByStudyInstanceUidAsync(string studyInstanceUid, CancellationToken cancellationToken = default);
+        Task AddAsync(Domain.Models.Study study, CancellationToken cancellationToken = default);
+        Task UpdateAsync(Domain.Models.Study study, CancellationToken cancellationToken = default);
+        Task DeleteAsync(string studyInstanceUid, CancellationToken cancellationToken = default);
+        Task<IEnumerable<Domain.Models.Study>> GetByPatientIdAsync(string patientId, CancellationToken cancellationToken = default);
     }
 }

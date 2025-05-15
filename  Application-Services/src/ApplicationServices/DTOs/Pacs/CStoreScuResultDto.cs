@@ -1,9 +1,13 @@
 using System.Collections.Generic;
+using System;
 
 namespace TheSSS.DicomViewer.Application.DTOs.Pacs
 {
     public record CStoreScuResultDto(
-        bool IsSuccessful,
-        Dictionary<string, bool> InstanceSendStatuses,
-        string ErrorMessage);
+        bool Success,
+        string Message,
+        int InstancesSent,
+        int InstancesFailed,
+        List<string> FailedInstanceUids,
+        DateTime Timestamp);
 }

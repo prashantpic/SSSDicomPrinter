@@ -7,11 +7,12 @@ namespace TheSSS.DicomViewer.Application.Interfaces.Infrastructure
 {
     public interface IFileSystemService
     {
-        Task CreateDirectoryAsync(string path, CancellationToken cancellationToken);
-        Task SaveFileAsync(string filePath, Stream content, CancellationToken cancellationToken);
-        Task MoveFileAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken);
-        Task DeleteFileAsync(string filePath, CancellationToken cancellationToken);
-        Task<List<string>> ListFilesInDirectoryAsync(string directoryPath, CancellationToken cancellationToken);
-        Task<bool> FileExistsAsync(string filePath, CancellationToken cancellationToken);
+        Task<IEnumerable<string>> EnumerateFilesAsync(string path, CancellationToken cancellationToken = default);
+        Task<Stream> ReadFileAsync(string filePath, CancellationToken cancellationToken = default);
+        Task WriteFileAsync(string filePath, Stream content, CancellationToken cancellationToken = default);
+        Task MoveFileAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken = default);
+        Task DeleteFileAsync(string filePath, CancellationToken cancellationToken = default);
+        Task CreateDirectoryAsync(string path, CancellationToken cancellationToken = default);
+        Task<bool> FileExistsAsync(string filePath, CancellationToken cancellationToken = default);
     }
 }

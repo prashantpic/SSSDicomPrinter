@@ -3,7 +3,8 @@ using System;
 namespace TheSSS.DicomViewer.Application.DTOs.Pacs
 {
     public record CEchoResultDto(
-        bool IsSuccessful,
+        bool Success,
+        string Message,
         TimeSpan ResponseTime,
-        string ErrorMessage);
+        DateTime Timestamp);
 }

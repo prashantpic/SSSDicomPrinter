@@ -5,9 +5,8 @@ namespace TheSSS.DicomViewer.Application.Interfaces.Persistence
 {
     public interface IUserSettingsRepository
     {
-        Task<UserSetting> GetByUserIdentifierAsync(string userIdentifier, CancellationToken cancellationToken);
-        Task AddAsync(UserSetting userSetting, CancellationToken cancellationToken);
-        Task UpdateAsync(UserSetting userSetting, CancellationToken cancellationToken);
-        Task DeleteAsync(UserSetting userSetting, CancellationToken cancellationToken);
+        Task<Domain.Models.UserSetting> GetByUserIdentifierAsync(string userIdentifier, CancellationToken cancellationToken = default);
+        Task AddOrUpdateAsync(Domain.Models.UserSetting userSetting, CancellationToken cancellationToken = default);
+        Task DeleteByUserIdentifierAsync(string userIdentifier, CancellationToken cancellationToken = default);
     }
 }

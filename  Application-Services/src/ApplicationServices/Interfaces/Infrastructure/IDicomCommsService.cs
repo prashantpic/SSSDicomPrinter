@@ -6,7 +6,8 @@ namespace TheSSS.DicomViewer.Application.Interfaces.Infrastructure
 {
     public interface IDicomCommsService
     {
-        Task<CEchoResultDto> SendCEchoAsync(PacsConfigurationDto pacsConfig, CancellationToken cancellationToken);
-        Task<CStoreScuResultDto> SendCStoreAsync(PacsConfigurationDto pacsConfig, IEnumerable<string> filePaths, CancellationToken cancellationToken);
+        Task<bool> SendCEchoAsync(string aeTitle, string host, int port, CancellationToken cancellationToken = default);
+        Task<CStoreScuResultDto> SendCStoreAsync(string aeTitle, string host, int port, IEnumerable<string> filePaths, CancellationToken cancellationToken = default);
+        Task<IEnumerable<Domain.Models.DicomStudy>> QueryStudiesAsync(string aeTitle, string host, int port, Domain.Models.StudyQuery query, CancellationToken cancellationToken = default);
     }
 }

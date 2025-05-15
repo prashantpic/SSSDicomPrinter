@@ -6,10 +6,10 @@ namespace TheSSS.DicomViewer.Application.Interfaces.Persistence
 {
     public interface IPixelAnonymizationTemplateRepository
     {
-        Task<PixelAnonymizationTemplate> GetByIdAsync(int templateId, CancellationToken cancellationToken);
-        Task<List<PixelAnonymizationTemplate>> GetAllAsync(CancellationToken cancellationToken);
-        Task AddAsync(PixelAnonymizationTemplate template, CancellationToken cancellationToken);
-        Task UpdateAsync(PixelAnonymizationTemplate template, CancellationToken cancellationToken);
-        Task DeleteAsync(PixelAnonymizationTemplate template, CancellationToken cancellationToken);
+        Task<Domain.Models.PixelAnonymizationTemplate> GetByIdAsync(int templateId, CancellationToken cancellationToken = default);
+        Task<IEnumerable<Domain.Models.PixelAnonymizationTemplate>> GetAllAsync(CancellationToken cancellationToken = default);
+        Task AddAsync(Domain.Models.PixelAnonymizationTemplate template, CancellationToken cancellationToken = default);
+        Task UpdateAsync(Domain.Models.PixelAnonymizationTemplate template, CancellationToken cancellationToken = default);
+        Task DeleteAsync(int templateId, CancellationToken cancellationToken = default);
     }
 }
