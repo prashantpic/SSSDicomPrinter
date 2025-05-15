@@ -1,17 +1,31 @@
+using System;
+
 namespace TheSSS.DICOMViewer.Monitoring.Contracts;
 
-/// <summary>
-/// Contains status information for an automated background task.
-/// </summary>
-/// <param name="TaskName">The name of the automated task.</param>
-/// <param name="LastRunTimestamp">The timestamp of the last time the task was run, if applicable.</param>
-/// <param name="LastRunStatus">The status of the last run (e.g., "Success", "Failed", "Running").</param>
-/// <param name="ErrorMessage">An error message if the last run failed, otherwise null.</param>
-/// <param name="NextRunTimestamp">The timestamp of the next scheduled run, if applicable.</param>
-public record AutomatedTaskStatusInfoDto(
-    string TaskName,
-    DateTimeOffset? LastRunTimestamp,
-    string LastRunStatus,
-    string? ErrorMessage,
-    DateTimeOffset? NextRunTimestamp
-);
+public class AutomatedTaskStatusInfoDto
+{
+    /// <summary>
+    /// The name or identifier of the automated task (e.g., "DataPurge", "DatabaseBackup", "PacsSync").
+    /// </summary>
+    public string TaskName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Timestamp when the task last ran. Null if never run.
+    /// </summary>
+    public DateTimeOffset? LastRunTimestamp { get; set; }
+
+    /// <summary>
+    /// Status of the last run (e.g., "Success", "Failed", "Running", "Skipped", "Pending").
+    /// </summary>
+    public string LastRunStatus { get; set; } = "Unknown";
+
+    /// <summary>
+    /// Error message if the last run failed. Null otherwise.
+    /// </summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// Timestamp when the task is scheduled to run next. Null if not scheduled or task is manually triggered.
+    /// </summary>
+    public DateTimeOffset? NextRunTimestamp { get; set; }
+}

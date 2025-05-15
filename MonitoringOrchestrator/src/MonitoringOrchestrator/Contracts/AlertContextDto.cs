@@ -1,21 +1,47 @@
+using System;
+
 namespace TheSSS.DICOMViewer.Monitoring.Contracts;
 
 /// <summary>
-/// Carries contextual information for an alert that has been triggered and needs to be evaluated for dispatch.
+/// Data Transfer Object carrying context for an alert to be evaluated and dispatched.
 /// </summary>
-/// <param name="TriggeredRuleName">The name of the rule that triggered this alert.</param>
-/// <param name="AlertSeverity">The severity of the alert (e.g., "Information", "Warning", "Error", "Critical").</param>
-/// <param name="Timestamp">The timestamp when the alert condition was met.</param>
-/// <param name="SourceComponent">The component or system area that this alert pertains to (e.g., "Storage", "PACS", "License").</param>
-/// <param name="Message">A human-readable summary message for the alert.</param>
-/// <param name="RawData">The specific DTO or data object that triggered the alert (e.g., StorageHealthInfoDto, PacsConnectionInfoDto).</param>
-/// <param name="AlertHash">A hash or unique signature for the alert, used for deduplication.</param>
-public record AlertContextDto(
-    string TriggeredRuleName,
-    string AlertSeverity,
-    DateTimeOffset Timestamp,
-    string SourceComponent,
-    string Message,
-    object RawData,
-    string AlertHash
-);
+public class AlertContextDto
+{
+    /// <summary>
+    /// The name of the alert rule that was triggered.
+    /// </summary>
+    public string TriggeredRuleName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The severity level of the alert (e.g., 'Critical', 'Warning', 'Info').
+    /// Should align with configured severities in AlertRule.
+    /// </summary>
+    public string AlertSeverity { get; set; } = "Warning";
+
+    /// <summary>
+    /// Timestamp when the alert condition was detected.
+    /// </summary>
+    public DateTimeOffset Timestamp { get; set; }
+
+    /// <summary>
+    /// The component or area of the system that is the source of the alert
+    /// (e.g., "Storage", "PACS:AETITLE_XYZ", "Database", "License", "AutomatedTask:DataPurge").
+    /// </summary>
+    public string SourceComponent { get; set; } = string.Empty;
+
+    /// <summary>
+    /// A human-readable message summarizing the alert.
+    /// </summary>
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional raw data object containing the specific health DTO (e.g., StorageHealthInfoDto, PacsConnectionInfoDto)
+    /// or event data that triggered the alert. This can be used for detailed reporting or troubleshooting.
+    /// </summary>
+    public object? RawData { get; set; }
+
+    /// <summary>
+    /// Optional: Unique identifier for correlating this alert instance across different systems or logs.
+    /// </summary>
+    public Guid CorrelationId { get; set; } = Guid.NewGuid();
+}

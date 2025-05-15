@@ -1,15 +1,26 @@
+using System;
+
 namespace TheSSS.DICOMViewer.Monitoring.Contracts;
 
-/// <summary>
-/// Contains information about the database connectivity status.
-/// </summary>
-/// <param name="IsConnected">A value indicating whether the database connection is active.</param>
-/// <param name="LastCheckTimestamp">The timestamp of the last connectivity check.</param>
-/// <param name="ErrorMessage">An error message if the connection check failed, otherwise null.</param>
-/// <param name="LatencyMs">The latency of the connection check in milliseconds, if successful and applicable.</param>
-public record DatabaseConnectivityInfoDto(
-    bool IsConnected,
-    DateTimeOffset LastCheckTimestamp,
-    string? ErrorMessage,
-    long? LatencyMs
-);
+public class DatabaseConnectivityInfoDto
+{
+    /// <summary>
+    /// Indicates if a connection to the database was successful.
+    /// </summary>
+    public bool IsConnected { get; set; }
+
+    /// <summary>
+    /// Timestamp of the last connectivity check.
+    /// </summary>
+    public DateTimeOffset LastCheckTimestamp { get; set; }
+
+    /// <summary>
+    /// Error message if the connection failed. Null if successful.
+    /// </summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// Optional latency in milliseconds for the check. Null if check failed or not measured.
+    /// </summary>
+    public long? LatencyMs { get; set; }
+}

@@ -1,17 +1,42 @@
+using System;
+
 namespace TheSSS.DICOMViewer.Monitoring.Contracts;
 
-/// <summary>
-/// Contains information about the connectivity status of a PACS node.
-/// </summary>
-/// <param name="PacsNodeId">The identifier or AE Title of the PACS node.</param>
-/// <param name="IsConnected">A value indicating whether the PACS node is currently connected (e.g., last C-ECHO was successful).</param>
-/// <param name="LastSuccessfulEchoTimestamp">The timestamp of the last successful C-ECHO, if any.</param>
-/// <param name="LastFailedEchoTimestamp">The timestamp of the last failed C-ECHO, if any.</param>
-/// <param name="LastEchoErrorMessage">The error message from the last failed C-ECHO, if applicable.</param>
-public record PacsConnectionInfoDto(
-    string PacsNodeId,
-    bool IsConnected,
-    DateTimeOffset? LastSuccessfulEchoTimestamp,
-    DateTimeOffset? LastFailedEchoTimestamp,
-    string? LastEchoErrorMessage
-);
+public class PacsConnectionInfoDto
+{
+    /// <summary>
+    /// Identifier for the PACS node (e.g., Configuration ID or internal name).
+    /// </summary>
+    public string PacsNodeId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// AE Title of the PACS node.
+    /// </summary>
+    public string AETitle { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Indicates if the last connectivity check (e.g., C-ECHO) was successful.
+    /// </summary>
+    public bool IsConnected { get; set; }
+
+    /// <summary>
+    /// Timestamp of the last successful connectivity check. Null if never successful or last check failed.
+    /// </summary>
+    public DateTimeOffset? LastSuccessfulEchoTimestamp { get; set; }
+
+    /// <summary>
+    /// Timestamp of the last failed connectivity check. Null if never failed or last check successful.
+    /// </summary>
+    public DateTimeOffset? LastFailedEchoTimestamp { get; set; }
+
+    /// <summary>
+    /// Error message from the last failed connectivity check. Null if successful.
+    /// </summary>
+    public string? LastEchoErrorMessage { get; set; }
+
+    /// <summary>
+    /// Optional: Number of consecutive failures observed for this PACS node.
+    /// This might be maintained by the evaluation service or the adapter providing the data.
+    /// </summary>
+    public int ConsecutiveFailureCount { get; set; } = 0;
+}

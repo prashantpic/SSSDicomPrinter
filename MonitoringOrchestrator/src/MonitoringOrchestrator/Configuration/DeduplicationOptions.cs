@@ -1,21 +1,23 @@
 using System;
+using System.ComponentModel.DataAnnotations;
 
 namespace TheSSS.DICOMViewer.Monitoring.Configuration;
 
 /// <summary>
-/// Holds configuration settings for alert deduplication.
+/// POCO class for alert deduplication configurations.
 /// </summary>
 public class DeduplicationOptions
 {
     /// <summary>
-    /// Gets or sets a value indicating whether alert deduplication is enabled.
-    /// Default is true.
+    /// Global flag to enable or disable deduplication.
     /// </summary>
     public bool IsEnabled { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets the window of time to look back for identical alerts to consider an incoming alert a duplicate.
-    /// Default is 5 minutes.
+    /// The time window during which identical alerts (based on a generated signature)
+    /// will be considered duplicates and suppressed.
     /// </summary>
+    [Required(ErrorMessage = "DeduplicationWindow is required.")]
+    [Range(typeof(TimeSpan), "00:00:01", "30.00:00:00", ErrorMessage = "DeduplicationWindow must be a positive time span.")] // Max 30 days
     public TimeSpan DeduplicationWindow { get; set; } = TimeSpan.FromMinutes(5);
 }

@@ -1,46 +1,58 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace TheSSS.DICOMViewer.Monitoring.Configuration;
 
 /// <summary>
-/// Represents a single alert rule definition, specifying conditions for triggering an alert.
+/// POCO class representing a single alert rule definition.
 /// </summary>
 public class AlertRule
 {
     /// <summary>
-    /// Gets or sets the unique name for this alert rule.
+    /// Unique name for the alert rule (e.g., "HighStorageUsage", "PACS_Offline_AETITLE").
     /// </summary>
+    [Required(ErrorMessage = "RuleName is required.")]
+    [StringLength(100, MinimumLength = 3, ErrorMessage = "RuleName must be between 3 and 100 characters.")]
     public string RuleName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the type of metric this rule applies to (e.g., "StorageUsagePercent", "PacsConnectivity").
-    /// This should correspond to a property or data point in the HealthReportDto or its constituent DTOs.
+    /// The type of metric or event this rule monitors (e.g., "StorageUsagePercent", "PacsConnectivity", "LicenseStatus", "CriticalErrorCount").
+    /// This string is used by AlertEvaluationService to select the correct logic.
     /// </summary>
+    [Required(ErrorMessage = "MetricType is required.")]
     public string MetricType { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the threshold value that the metric will be compared against.
+    /// The threshold value to compare against the metric. Interpretation depends on MetricType and ComparisonOperator.
     /// </summary>
-    public double ThresholdValue { get; set; }
+    public double ThresholdValue { get; set; } // No [Required] as some rules might not need a threshold (e.g., boolean status checks)
 
     /// <summary>
-    /// Gets or sets the comparison operator to use (e.g., "GreaterThan", "LessThan", "EqualTo").
+    /// The comparison operator to use (e.g., "GreaterThan", "EqualTo", "LessThan", "NotEqualTo", "BecomesFalse", "BecomesTrue").
     /// </summary>
+    [Required(ErrorMessage = "ComparisonOperator is required.")]
     public string ComparisonOperator { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the severity of the alert if triggered (e.g., "Information", "Warning", "Error", "Critical").
+    /// The severity level of the alert if this rule triggers (e.g., "Critical", "Warning", "Info").
     /// </summary>
-    public string Severity { get; set; } = string.Empty;
+    [Required(ErrorMessage = "Severity is required.")]
+    public string Severity { get; set; } = "Warning";
 
     /// <summary>
-    /// Gets or sets the number of consecutive failures or checks meeting the criteria before an alert is triggered.
-    /// A value of 1 means an alert is triggered on the first occurrence.
+    /// For metrics that check status over time (like connectivity), the number of consecutive
+    /// failures/matches required to trigger the alert. Default is 1 (trigger on first match).
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "ConsecutiveFailuresToAlert must be at least 1.")]
     public int ConsecutiveFailuresToAlert { get; set; } = 1;
 
     /// <summary>
-    /// Gets or sets an optional identifier for rules that are specific to a particular target 
-    /// (e.g., a specific PACS node AETitle or a storage path).
-    /// If null or empty, the rule applies globally to the MetricType.
+    /// Optional: A specific instance identifier this rule applies to (e.g., a PACS AE Title for a "PacsConnectivity" rule,
+    /// or a specific task name for "AutomatedTaskStatus"). If null/empty, the rule may apply globally for the MetricType.
     /// </summary>
-    public string? TargetIdentifier { get; set; }
+    public string? InstanceIdentifier { get; set; }
+
+    /// <summary>
+    /// Indicates if this rule is enabled. Disabled rules are ignored by the AlertEvaluationService.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
 }
