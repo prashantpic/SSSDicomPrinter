@@ -1,133 +1,147 @@
 using System;
-using System.Net.Http;
-using System.Net.Mail;
+using System.Net;
 using TheSSS.DICOMViewer.Integration.Interfaces;
 using TheSSS.DICOMViewer.Integration.Models;
-using TheSSS.DICOMViewer.CrossCutting.Logging; // Assuming ILoggerAdapter namespace
-using RestSharp; // For RestSharp specific exceptions if any, or to parse RestResponse content
-
-// Placeholder for Dicom specific exceptions if they come from a specific library
-// namespace ThirdParty.Dicom
-// {
-//     public class DicomNetworkException : Exception { public ushort DicomStatus {get; set;} /* ... */ }
-// }
+using TheSSS.DICOMViewer.Common.Interfaces; // Assuming ILoggerAdapter is here
+using TheSSS.DICOMViewer.Integration.Adapters; // For custom adapter exceptions
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 
 
-namespace TheSSS.DICOMViewer.Integration.Services
+namespace TheSSS.DICOMViewer.Integration.Services;
+
+public class UnifiedErrorHandlingService : IUnifiedErrorHandlingService
 {
-    public class UnifiedErrorHandlingService : IUnifiedErrorHandlingService
+    private readonly ILoggerAdapter _logger;
+
+    private const string DefaultErrorCode = "UNEXPECTED_ERROR";
+    private const string DefaultErrorMessage = "An unexpected error occurred.";
+
+    public UnifiedErrorHandlingService(ILoggerAdapter logger)
     {
-        private readonly ILoggerAdapter<UnifiedErrorHandlingService> _logger;
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
 
-        public UnifiedErrorHandlingService(ILoggerAdapter<UnifiedErrorHandlingService> logger)
+    public ServiceErrorDto HandleError(Exception exception, string serviceIdentifier)
+    {
+        _logger.Error(exception, $"Handling exception from service '{serviceIdentifier}'. Exception Type: {exception.GetType().FullName}");
+
+        string errorCode = DefaultErrorCode;
+        string title = $"Error interacting with {serviceIdentifier}";
+        string detail = exception.Message;
+
+        switch (exception)
         {
-            _logger = logger;
+            case ServiceIntegrationDisabledException ex:
+                errorCode = "SERVICE_DISABLED";
+                title = $"Service '{serviceIdentifier}' Disabled";
+                detail = ex.Message;
+                break;
+            case PolicyNotFoundException ex:
+                errorCode = "POLICY_CONFIG_ERROR";
+                title = "Resilience Policy Configuration Error";
+                detail = ex.Message;
+                break;
+            case RateLimitExceededException ex:
+                errorCode = "RATE_LIMIT_EXCEEDED";
+                title = "Rate Limit Exceeded";
+                detail = $"Rate limit exceeded for {serviceIdentifier}. {ex.Message}";
+                break;
+            case CredentialRetrievalException ex:
+                errorCode = "CREDENTIAL_ERROR";
+                title = "Credential Retrieval Failed";
+                detail = $"Could not retrieve credentials for {serviceIdentifier}. {ex.Message}";
+                break;
+            case TimeoutRejectedException ex: // Polly's specific timeout exception
+            case TimeoutException exStd when !(exStd is TimeoutRejectedException): // Standard .NET Timeout
+                errorCode = "SERVICE_TIMEOUT";
+                title = $"Service '{serviceIdentifier}' Timed Out";
+                detail = exStd.Message;
+                break;
+            case BrokenCircuitException ex:
+                errorCode = "CIRCUIT_BROKEN";
+                title = $"Service '{serviceIdentifier}' Unavailable";
+                detail = $"The circuit breaker for {serviceIdentifier} is open. {ex.Message}";
+                break;
+            case OdooApiException ex:
+                errorCode = $"ODOO_API_ERROR_{(int?)ex.StatusCode ?? 0}";
+                title = "Odoo API Error";
+                detail = $"Odoo API request failed. Status: {ex.StatusCode?.ToString() ?? "N/A"}. Message: {ex.Message}. Response: {Truncate(ex.ResponseContent, 200)}";
+                break;
+            case SmtpSendException ex:
+                var innerSmtpEx = ex.InnerException as System.Net.Mail.SmtpException;
+                errorCode = $"SMTP_SEND_ERROR_{(int?)innerSmtpEx?.StatusCode ?? 0}";
+                title = "SMTP Send Error";
+                detail = $"Failed to send email via SMTP. {ex.Message}. SMTP Status: {innerSmtpEx?.StatusCode.ToString() ?? "N/A"}";
+                break;
+            case PrintJobException ex:
+                errorCode = "PRINT_JOB_ERROR";
+                title = "Print Job Submission Error";
+                detail = ex.Message;
+                break;
+            case DicomNetworkException ex:
+                // Try to get more specific DICOM status from inner exception if available
+                // This requires knowledge of the exceptions thrown by IDicomLowLevelClient
+                string dicomStatusInfo = ""; 
+                // Example: if IDicomLowLevelClient throws a specific exception type
+                // if (ex.InnerException is DicomSpecificInfrastructureException dse) {
+                //    dicomStatusInfo = $" DICOM Status: {dse.DicomStatus}";
+                //    errorCode = $"DICOM_NETWORK_ERROR_{dse.DicomStatus}";
+                // } else {
+                errorCode = "DICOM_NETWORK_ERROR";
+                // }
+                title = "DICOM Network Error";
+                detail = $"{ex.Message}{dicomStatusInfo}";
+                break;
+            case HttpRequestException ex:
+                errorCode = $"HTTP_REQUEST_ERROR_{(int?)ex.StatusCode ?? 0}";
+                title = "HTTP Request Error";
+                detail = $"Network error during HTTP request to {serviceIdentifier}. Status: {ex.StatusCode?.ToString() ?? "N/A"}. {ex.Message}";
+                break;
+            case OperationCanceledException ex:
+                errorCode = "OPERATION_CANCELLED";
+                title = "Operation Cancelled";
+                detail = $"The operation for {serviceIdentifier} was cancelled. {ex.Message}";
+                break;
+            default: // Handles any other exception
+                errorCode = $"UNHANDLED_EXCEPTION_{exception.GetType().Name.ToUpperInvariant()}";
+                title = $"Unexpected Error with {serviceIdentifier}";
+                detail = $"An unexpected error of type {exception.GetType().Name} occurred: {exception.Message}";
+                _logger.Warning($"Unhandled exception type {exception.GetType().Name} mapped to generic error for service '{serviceIdentifier}'.");
+                break;
         }
 
-        public ServiceErrorDto HandleError(Exception exception, string serviceIdentifier)
+        return new ServiceErrorDto(errorCode, title, detail, serviceIdentifier);
+    }
+
+    public ServiceErrorDto HandleErrorResponse(object errorResponse, string serviceIdentifier)
+    {
+        _logger.Warning($"Handling structured error response from service '{serviceIdentifier}'. Response Type: {errorResponse.GetType().FullName}");
+
+        string errorCode = $"STRUCTURED_ERROR_{serviceIdentifier.ToUpperInvariant()}";
+        string title = $"Service '{serviceIdentifier}' Reported an Error";
+        string detail = "The service returned a structured error response.";
+
+        // Example for Odoo if it returns a 200 OK with an error object in the body
+        if (serviceIdentifier == "OdooApi" && errorResponse is OdooLicenseResponseDto odooResp)
         {
-            _logger.LogError(exception, "Error handled from service: {ServiceIdentifier}. Exception Type: {ExceptionType}", serviceIdentifier, exception.GetType().Name);
-
-            return exception switch
+            // Assuming OdooLicenseResponseDto has fields that indicate an error even on 200 OK
+            // For example, if odooResp.IsValid is false but the HTTP status was 200.
+            if (!odooResp.IsValid && !string.IsNullOrWhiteSpace(odooResp.Message))
             {
-                // Custom exceptions from adapters that might already contain ServiceErrorDto
-                Adapters.OdooApiException odooEx => new ServiceErrorDto(odooEx.ErrorDetails.Code ?? "OdooFailure", odooEx.Message, odooEx.ToString(), serviceIdentifier),
-                Adapters.DicomNetworkOperationException dicomEx => new ServiceErrorDto(dicomEx.ErrorDetails.Code ?? $"DICOM_{dicomEx.DicomStatus:X4}", dicomEx.Message, dicomEx.ToString(), serviceIdentifier),
-                
-                // Standard .NET exceptions
-                HttpRequestException httpEx => new ServiceErrorDto(
-                    httpEx.StatusCode?.ToString() ?? "NetworkError",
-                    $"HTTP request error: {httpEx.Message}",
-                    httpEx.ToString(),
-                    serviceIdentifier),
-                TaskCanceledException tcEx when tcEx.InnerException is TimeoutException => new ServiceErrorDto(
-                    "Timeout",
-                    "The operation timed out.",
-                    tcEx.ToString(),
-                    serviceIdentifier),
-                TaskCanceledException tcEx => new ServiceErrorDto(
-                     tcEx.CancellationToken.IsCancellationRequested ? "OperationCanceled" : "TaskCancelError",
-                    "The operation was canceled.",
-                    tcEx.ToString(),
-                    serviceIdentifier),
-                TimeoutException timeoutEx => new ServiceErrorDto(
-                    "Timeout",
-                    "The operation timed out.",
-                    timeoutEx.ToString(),
-                    serviceIdentifier),
-                
-                // Polly specific exceptions
-                Polly.Timeout.TimeoutRejectedException trEx => new ServiceErrorDto(
-                    "PollyTimeout",
-                    "The operation governed by Polly TimeoutPolicy timed out.",
-                    trEx.ToString(),
-                    serviceIdentifier),
-                Polly.CircuitBreaker.BrokenCircuitException bcEx => new ServiceErrorDto(
-                    "CircuitBroken",
-                    $"Circuit breaker is open: {bcEx.Message}",
-                    bcEx.ToString(),
-                    serviceIdentifier),
-                Polly.CircuitBreaker.IsolatedCircuitException icEx => new ServiceErrorDto(
-                    "CircuitIsolated",
-                    $"Circuit breaker is isolated: {icEx.Message}",
-                    icEx.ToString(),
-                    serviceIdentifier),
-                
-                // Service specific exceptions
-                SmtpException smtpEx => new ServiceErrorDto(
-                    $"SmtpError_{smtpEx.StatusCode}",
-                    $"SMTP error: {smtpEx.Message}",
-                    smtpEx.ToString(),
-                    serviceIdentifier),
-                
-                // Add other specific DICOM exceptions if IDicomLowLevelClient throws them
-                // e.g. DicomNetworkException dicomEx => new ServiceErrorDto($"DICOM_{dicomEx.DicomStatus:X4}", dicomEx.Message, dicomEx.ToString(), serviceIdentifier),
-
-                // RestSharp specific, if response was not successful (IsSuccessful is false)
-                // This is typically caught in the adapter and response content is passed to HandleErrorResponse.
-                // If RestClient throws directly, it might be an HttpRequestException or other.
-                // For example, if `EnsureSuccessStatusCode()` was used implicitly or explicitly.
-
-                // Generic fallback
-                _ => new ServiceErrorDto(
-                    "UnhandledException",
-                    $"An unexpected error occurred in {serviceIdentifier}: {exception.Message}",
-                    exception.ToString(),
-                    serviceIdentifier)
-            };
-        }
-
-        public ServiceErrorDto HandleErrorResponse(object errorResponse, string serviceIdentifier)
-        {
-            // This method needs to understand the structure of errorResponse for different services.
-            // errorResponse could be a string (JSON, XML, plain text) or a deserialized object.
-            _logger.LogWarning("Handling error response from service: {ServiceIdentifier}. Response: {ErrorResponse}", serviceIdentifier, errorResponse?.ToString());
-
-            string errorCode = "ServiceError";
-            string errorMessage = "The external service returned an error.";
-            string errorDetails = errorResponse?.ToString() ?? "No details provided.";
-
-            // Example: Odoo might return JSON like {"error": {"code": 200, "message": "Details"}}
-            // Example: DICOM status codes might be part of a DTO (e.g. LowLevelDicomResponse from DicomNetworkAdapter)
-            if (errorResponse is string responseString)
-            {
-                // Try to parse common error patterns, e.g. JSON
-                // This is highly dependent on actual service responses.
-                // For a robust solution, each adapter might parse its own errors and then call a more specific
-                // version of HandleErrorResponse, or HandleError with a custom exception containing parsed details.
-                // For now, a generic approach:
-                errorMessage = $"Service {serviceIdentifier} returned an error: {responseString.Substring(0, Math.Min(responseString.Length, 100))}";
-                errorDetails = responseString;
+                errorCode = "ODOO_LOGICAL_ERROR"; // Or extract a code from odooResp if available
+                title = "Odoo Logical Error";
+                detail = odooResp.Message;
             }
-            else if (errorResponse is Models.LowLevelDicomResponse dicomLowLevelError) // Assuming this DTO from IDicomLowLevelClient
-            {
-                errorCode = $"DICOM_{dicomLowLevelError.DicomStatus:X4}";
-                errorMessage = $"DICOM operation failed with status {dicomLowLevelError.DicomStatus:X4}: {dicomLowLevelError.StatusMessage}";
-                errorDetails = $"Target: {serviceIdentifier}, Status: {dicomLowLevelError.DicomStatus}, Message: {dicomLowLevelError.StatusMessage}";
-            }
-            // Add more specific handlers for other types of errorResponse objects if needed.
-
-            return new ServiceErrorDto(errorCode, errorMessage, errorDetails, serviceIdentifier);
         }
+        // Add specific handling for other services if they use this pattern
+
+        return new ServiceErrorDto(errorCode, title, detail, serviceIdentifier);
+    }
+
+    private static string Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        return value.Length <= maxLength ? value : value.Substring(0, maxLength) + "...";
     }
 }

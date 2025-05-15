@@ -1,134 +1,196 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading;
-using System.Threading.RateLimiting;
 using System.Threading.Tasks;
+using System.Threading.RateLimiting;
 using Microsoft.Extensions.Options;
 using TheSSS.DICOMViewer.Integration.Configuration;
 using TheSSS.DICOMViewer.Integration.Interfaces;
-using TheSSS.DICOMViewer.CrossCutting.Logging; // Assuming ILoggerAdapter namespace
+using TheSSS.DICOMViewer.Common.Interfaces; // Assuming ILoggerAdapter is here
 
-namespace TheSSS.DICOMViewer.Integration.RateLimiting
+namespace TheSSS.DICOMViewer.Integration.RateLimiting;
+
+public class ConfigurableRateLimiter : IRateLimiter, IAsyncDisposable
 {
-    public class ConfigurableRateLimiter : IRateLimiter, IAsyncDisposable
+    private readonly RateLimitSettings _settings;
+    private readonly ILoggerAdapter _logger;
+    private readonly ConcurrentDictionary<string, System.Threading.RateLimiting.RateLimiter> _limiters = 
+        new ConcurrentDictionary<string, System.Threading.RateLimiting.RateLimiter>();
+    private bool _disposed = false;
+
+    public ConfigurableRateLimiter(IOptions<RateLimitSettings> settings, ILoggerAdapter logger)
     {
-        private readonly ILoggerAdapter<ConfigurableRateLimiter> _logger;
-        private readonly ConcurrentDictionary<string, RateLimiter> _limiters = new();
-        private readonly RateLimitSettings _globalRateLimitSettings;
+        _settings = settings.Value ?? throw new ArgumentNullException(nameof(settings));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        public ConfigurableRateLimiter(
-            IOptions<RateLimitSettings> rateLimitSettings,
-            ILoggerAdapter<ConfigurableRateLimiter> logger)
+        InitializeLimiters();
+    }
+
+    private void InitializeLimiters()
+    {
+        if (!_settings.EnableRateLimitingPerService || _settings.Limiters == null)
         {
-            _logger = logger;
-            _globalRateLimitSettings = rateLimitSettings.Value ?? new RateLimitSettings();
-
-            InitializeLimiters();
+            _logger.Information("Rate limiting is globally disabled or no limiters are configured.");
+            return;
         }
 
-        private void InitializeLimiters()
+        foreach (var limiterConfig in _settings.Limiters)
         {
-            _logger.LogInformation("Initializing rate limiters based on configuration.");
-            if (_globalRateLimitSettings.Limits == null)
+            if (string.IsNullOrWhiteSpace(limiterConfig.ResourceKey))
             {
-                 _logger.LogWarning("No rate limits defined in configuration.");
-                 return;
+                _logger.Warning("Skipping rate limiter configuration with empty resource key.");
+                continue;
             }
 
-            foreach (var kvp in _globalRateLimitSettings.Limits)
+            System.Threading.RateLimiting.RateLimiter? limiter = null;
+            var options = new RateLimiterOptions
             {
-                var resourceKey = kvp.Key;
-                var limitSetting = kvp.Value;
-                RateLimiter limiter = limitSetting.Type.ToLowerInvariant() switch
-                {
-                    "tokenbucket" => new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
-                    {
-                        TokenLimit = limitSetting.PermitLimit,
-                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                        QueueLimit = limitSetting.QueueLimit,
-                        ReplenishmentPeriod = TimeSpan.FromMilliseconds(limitSetting.WindowMs),
-                        TokensPerPeriod = limitSetting.TokensPerPeriod,
-                        AutoReplenishment = true
-                    }),
-                    "fixedwindow" => new FixedWindowRateLimiter(new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = limitSetting.PermitLimit,
-                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                        QueueLimit = limitSetting.QueueLimit,
-                        Window = TimeSpan.FromMilliseconds(limitSetting.WindowMs),
-                        AutoReplenishment = true
-                    }),
-                    // Add other types like SlidingWindowRateLimiter, ConcurrencyLimiter if needed
-                    _ => null
-                };
+                PermitLimit = limiterConfig.PermitLimit,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst, // Default, can be configured if needed
+                QueueLimit = limiterConfig.QueueLimit
+            };
 
-                if (limiter != null)
+            switch (limiterConfig.Mode)
+            {
+                case RateLimiterMode.FixedWindow:
+                    limiter = new FixedWindowRateLimiter(new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = options.PermitLimit,
+                        Window = limiterConfig.Window, // Specific to FixedWindow
+                        QueueProcessingOrder = options.QueueProcessingOrder,
+                        QueueLimit = options.QueueLimit,
+                        AutoReplenishment = true // Default for FixedWindow
+                    });
+                    _logger.Information($"Configured FixedWindowRateLimiter for resource '{limiterConfig.ResourceKey}' with limit {options.PermitLimit}/{limiterConfig.Window.TotalSeconds}s, Queue: {options.QueueLimit}.");
+                    break;
+                case RateLimiterMode.TokenBucket:
+                    limiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
+                    {
+                        TokenLimit = options.PermitLimit, // Max tokens in bucket
+                        QueueProcessingOrder = options.QueueProcessingOrder,
+                        QueueLimit = options.QueueLimit,
+                        ReplenishmentPeriod = limiterConfig.ReplenishmentPeriod, // Specific to TokenBucket
+                        TokensPerPeriod = limiterConfig.TokensPerPeriod,       // Specific to TokenBucket
+                        AutoReplenishment = limiterConfig.AutoReplenishment    // Specific to TokenBucket
+                    });
+                    _logger.Information($"Configured TokenBucketRateLimiter for resource '{limiterConfig.ResourceKey}' with limit {options.PermitLimit} tokens, replenishing {limiterConfig.TokensPerPeriod}/{limiterConfig.ReplenishmentPeriod.TotalSeconds}s, Queue: {options.QueueLimit}.");
+                    break;
+                case RateLimiterMode.Concurrency:
+                    limiter = new ConcurrencyLimiter(new ConcurrencyLimiterOptions
+                    {
+                        PermitLimit = options.PermitLimit, // Max concurrent requests
+                        QueueProcessingOrder = options.QueueProcessingOrder,
+                        QueueLimit = options.QueueLimit
+                    });
+                    _logger.Information($"Configured ConcurrencyLimiter for resource '{limiterConfig.ResourceKey}' with limit {options.PermitLimit} concurrent operations, Queue: {options.QueueLimit}.");
+                    break;
+                default:
+                    _logger.Warning($"Unknown RateLimiterMode '{limiterConfig.Mode}' for resource '{limiterConfig.ResourceKey}'. Skipping configuration.");
+                    continue;
+            }
+
+            if (limiter != null)
+            {
+                var oldLimiter = _limiters.AddOrUpdate(limiterConfig.ResourceKey, limiter, (key, existingLimiter) =>
                 {
-                    if (_limiters.TryAdd(resourceKey, limiter))
-                    {
-                        _logger.LogInformation("Initialized {Type} rate limiter for resource: {ResourceKey} (Limit: {PermitLimit}, Window: {WindowMs}ms, Queue: {QueueLimit})",
-                            limitSetting.Type, resourceKey, limitSetting.PermitLimit, limitSetting.WindowMs, limitSetting.QueueLimit);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Could not add rate limiter for duplicate resource key: {ResourceKey}", resourceKey);
-                        limiter.Dispose(); // Dispose if not added
-                    }
+                    // Asynchronously dispose the old limiter if it's being replaced
+                    // This is complex with AddOrUpdate; easier to handle outside or assume AddOrUpdate is on init.
+                    // For simplicity, direct replacement assuming initialization or infrequent updates.
+                    // If dynamic reconfig is needed, careful disposal of old limiters is required.
+                    _ = existingLimiter.DisposeAsync(); 
+                    return limiter;
+                });
+                // If 'oldLimiter' was the same instance as 'limiter', it means it was an add, not an update.
+                // If it was different, it was an update, and the old one is now being disposed.
+            }
+        }
+    }
+
+    public async Task AcquirePermitAsync(string resourceKey, CancellationToken cancellationToken = default)
+    {
+        if (!_settings.EnableRateLimitingPerService)
+        {
+            return; // Rate limiting is globally disabled.
+        }
+
+        if (_limiters.TryGetValue(resourceKey, out var limiter))
+        {
+            _logger.Debug($"Attempting to acquire rate limit permit for resource '{resourceKey}'. Stats: Available={limiter.GetStatistics()?.CurrentAvailablePermits}, Queued={limiter.GetStatistics()?.CurrentQueuedCount}.");
+            
+            RateLimitLease lease = default;
+            try
+            {
+                lease = await limiter.AcquireAsync(1, cancellationToken).ConfigureAwait(false);
+
+                if (lease.IsAcquired)
+                {
+                    _logger.Debug($"Successfully acquired rate limit permit for resource '{resourceKey}'.");
                 }
                 else
                 {
-                    _logger.LogWarning("Unsupported rate limiter type '{Type}' for resource: {ResourceKey}", limitSetting.Type, resourceKey);
+                    _logger.Warning($"Failed to acquire rate limit permit for resource '{resourceKey}'. Lease not acquired (e.g., queue limit hit and timed out).");
+                    // This situation (lease not acquired) implies request should not proceed.
+                    // Throwing here helps propagate the failure clearly.
+                    throw new RateLimitExceededException($"Failed to acquire rate limit permit for resource '{resourceKey}'. The request cannot be processed at this time.");
                 }
             }
-        }
-
-        public async Task AcquirePermitAsync(string resourceKey, CancellationToken cancellationToken)
-        {
-            if (_limiters.TryGetValue(resourceKey, out var limiter))
+            catch (ArgumentOutOfRangeException aoore) when (aoore.ParamName == "permitCount") // Should not happen with permitCount = 1
             {
-                RateLimitLease lease = await limiter.AcquireAsync(1, cancellationToken); // Acquire 1 permit
-                if (!lease.IsAcquired)
-                {
-                    // This should not happen with AcquireAsync unless cancellation occurs before acquisition
-                    // or if the limiter is disposed. Handle as an error or throw.
-                    _logger.LogError("Failed to acquire rate limit permit for resource {ResourceKey}, lease was not acquired.", resourceKey);
-                    throw new RateLimitLeaseNotAcquiredException($"Failed to acquire rate limit permit for {resourceKey}.");
-                }
-                // Lease will be disposed automatically if not used in a using statement.
-                // For AcquireAsync, the permit is granted, or it throws/waits.
-                // If you need to manually release: lease.Dispose(); but that's for try-acquire patterns.
+                _logger.Error(aoore, $"Internal error in rate limiter for resource '{resourceKey}': permitCount was invalid.");
+                throw; // Re-throw as this is an unexpected internal issue.
             }
-            else
+            catch (RateLimiterRejectedException rejectedEx)
             {
-                // No specific limiter for this key, either allow or deny.
-                // Default behavior: if not configured, allow. Or could use a global default limiter.
-                _logger.LogDebug("No specific rate limiter configured for resource: {ResourceKey}. Call allowed without rate limiting.", resourceKey);
-                // Optionally, apply a default global limiter if one is defined
-                if (_globalRateLimitSettings.DefaultPermitLimit > 0 && _limiters.TryGetValue("DefaultGlobalRateLimit", out var defaultLimiter))
-                {
-                     RateLimitLease lease = await defaultLimiter.AcquireAsync(1, cancellationToken);
-                     if(!lease.IsAcquired)
-                     {
-                        _logger.LogError("Failed to acquire default global rate limit permit for resource {ResourceKey}.", resourceKey);
-                        throw new RateLimitLeaseNotAcquiredException($"Failed to acquire default global rate limit permit for {resourceKey}.");
-                     }
-                }
+                 // This exception is thrown by some limiters (e.g., FixedWindow) if a permit cannot be leased
+                 // (e.g., queue is full, or request cannot be satisfied within the limiter's constraints).
+                 _logger.Warning(rejectedEx, $"Rate limit permit acquisition rejected for resource '{resourceKey}'.");
+                 throw new RateLimitExceededException($"Rate limit rejected for resource '{resourceKey}'.", rejectedEx);
             }
+            catch (OperationCanceledException)
+            {
+                _logger.Information($"Rate limit permit acquisition cancelled for resource '{resourceKey}'.");
+                lease?.Dispose(); // Ensure lease is disposed if acquired partially or cancellation occurs during wait.
+                throw;
+            }
+            catch (Exception ex) // Catch-all for unexpected errors during acquisition
+            {
+                _logger.Error(ex, $"An unexpected error occurred during rate limit permit acquisition for resource '{resourceKey}'.");
+                lease?.Dispose();
+                throw; // Re-throw to indicate a problem.
+            }
+            // Lease should be disposed by the caller if they need to hold it.
+            // However, for simple acquire-and-proceed, the lease is typically short-lived (within this method's scope).
+            // If AcquirePermitAsync's contract is just to "wait until permitted", the lease can be disposed here.
+            // If the lease needs to be held by the caller (e.g., for ConcurrencyLimiter where lease.Dispose releases permit),
+            // then IRateLimiter should return RateLimitLease.
+            // Given the current IRateLimiter interface (Task), we assume the permit is acquired and immediately "used".
+            // So, dispose the lease here.
+            lease?.Dispose();
         }
-
-        public async ValueTask DisposeAsync()
+        else
         {
-            _logger.LogInformation("Disposing ConfigurableRateLimiter and its underlying limiters.");
+            _logger.Debug($"No rate limiter configured for resource '{resourceKey}'. Proceeding without limiting.");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_disposed)
+        {
             foreach (var limiter in _limiters.Values)
             {
-                await limiter.DisposeAsync();
+                await limiter.DisposeAsync().ConfigureAwait(false);
             }
             _limiters.Clear();
+            _disposed = true;
+            GC.SuppressFinalize(this);
         }
     }
+}
 
-    public class RateLimitLeaseNotAcquiredException : Exception
-    {
-        public RateLimitLeaseNotAcquiredException(string message) : base(message) { }
-    }
+// Custom exception for rate limit exceeding
+public class RateLimitExceededException : Exception
+{
+    public RateLimitExceededException(string message) : base(message) { }
+    public RateLimitExceededException(string message, Exception innerException) : base(message, innerException) { }
 }

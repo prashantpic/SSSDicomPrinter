@@ -1,159 +1,203 @@
 using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
-using TheSSS.DICOMViewer.Integration.Configuration;
+using Polly;
 using TheSSS.DICOMViewer.Integration.Interfaces;
 using TheSSS.DICOMViewer.Integration.Models;
-using TheSSS.DICOMViewer.CrossCutting.Logging; // Assuming ILoggerAdapter namespace
-using TheSSS.DICOMViewer.Infrastructure.DICOM.Client; // Assuming IDicomLowLevelClient namespace
-using Polly;
+using TheSSS.DICOMViewer.Integration.Configuration;
+using TheSSS.DICOMViewer.Infrastructure.Interfaces; // Assuming IDicomLowLevelClient is here
+using TheSSS.DICOMViewer.Common.Interfaces; // Assuming ILoggerAdapter is here
+using Dicom; // Assuming FO-DICOM or similar library types might be used internally by the low-level client
 
-namespace TheSSS.DICOMViewer.Integration.Adapters
+namespace TheSSS.DICOMViewer.Integration.Adapters;
+
+public class DicomNetworkAdapter : IDicomNetworkAdapter
 {
-    public class DicomNetworkAdapter : IDicomNetworkAdapter
+    private readonly IDicomLowLevelClient _dicomClient; // From REPO-INFRA
+    private readonly DicomGatewaySettings _settings;
+    private readonly IResiliencePolicyProvider _policyProvider;
+    private readonly IRateLimiter _rateLimiter;
+    private readonly ILoggerAdapter _logger;
+    private readonly IAsyncPolicy _resiliencePolicy;
+    private readonly ServiceGatewaySettings _gatewaySettings; // To check if DICOM is enabled
+    private readonly SemaphoreSlim _concurrencyLimiter;
+
+    public DicomNetworkAdapter(
+        IDicomLowLevelClient dicomClient, 
+        IOptions<DicomGatewaySettings> settings,
+        IOptions<ServiceGatewaySettings> gatewaySettings,
+        IResiliencePolicyProvider policyProvider,
+        IRateLimiter rateLimiter,
+        ILoggerAdapter logger)
     {
-        private readonly IDicomLowLevelClient _dicomClient;
-        private readonly DicomGatewaySettings _gatewaySettings;
-        private readonly IRateLimiter _rateLimiter;
-        private readonly IResiliencePolicyProvider _resiliencePolicyProvider;
-        private readonly IUnifiedErrorHandlingService _errorHandlingService;
-        private readonly ILoggerAdapter<DicomNetworkAdapter> _logger;
+        _dicomClient = dicomClient ?? throw new ArgumentNullException(nameof(dicomClient));
+        _settings = settings.Value ?? throw new ArgumentNullException(nameof(settings));
+        _gatewaySettings = gatewaySettings.Value ?? throw new ArgumentNullException(nameof(gatewaySettings));
+        _policyProvider = policyProvider ?? throw new ArgumentNullException(nameof(policyProvider));
+        _rateLimiter = rateLimiter ?? throw new ArgumentNullException(nameof(rateLimiter));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        private const string DicomServiceIdentifier = "DICOMNetworkService";
+        _resiliencePolicy = _policyProvider.GetPolicyAsync(_settings.PolicyKey);
+        _concurrencyLimiter = new SemaphoreSlim(_settings.MaxConcurrentOperations > 0 ? _settings.MaxConcurrentOperations : Environment.ProcessorCount, 
+                                                _settings.MaxConcurrentOperations > 0 ? _settings.MaxConcurrentOperations : Environment.ProcessorCount);
+    }
 
-        public DicomNetworkAdapter(
-            IDicomLowLevelClient dicomClient,
-            IOptions<DicomGatewaySettings> gatewaySettings,
-            IRateLimiter rateLimiter,
-            IResiliencePolicyProvider resiliencePolicyProvider,
-            IUnifiedErrorHandlingService errorHandlingService,
-            ILoggerAdapter<DicomNetworkAdapter> logger)
+    private async Task<TResult> ExecuteDicomOperationAsync<TResult>(
+        string operationName,
+        string targetAeDescription,
+        Func<CancellationToken, Task<TResult>> dicomClientOperation,
+        CancellationToken cancellationToken)
+    {
+        if (!_gatewaySettings.EnableDicomIntegration)
         {
-            _dicomClient = dicomClient;
-            _gatewaySettings = gatewaySettings.Value;
-            _rateLimiter = rateLimiter;
-            _resiliencePolicyProvider = resiliencePolicyProvider;
-            _errorHandlingService = errorHandlingService;
-            _logger = logger;
+            _logger.Information($"DICOM integration is disabled. Skipping {operationName}.");
+            throw new ServiceIntegrationDisabledException("DICOM integration is disabled in settings.");
         }
 
-        private async Task<TResponse> ExecuteDicomOperationAsync<TResponse>(
-            string operationName,
-            string targetAE,
-            Func<CancellationToken, Task<LowLevelDicomResponse>> dicomClientOperation, // Assuming LowLevelDicomResponse from IDicomLowLevelClient
-            Func<LowLevelDicomResponse, TResponse> createSuccessResponse,
-            CancellationToken cancellationToken)
-            where TResponse : DicomOperationResultDto // Base DTO for DICOM results
+        await _concurrencyLimiter.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            _logger.LogInformation("Attempting DICOM {OperationName} to AE: {TargetAE}", operationName, targetAE);
-
-            try
+            if (_gatewaySettings.RateLimiting.EnableRateLimitingPerService)
             {
-                // Use a resource key specific to the target AE or a general DICOM key
-                string rateLimiterKey = $"{PolicyRegistryKeys.DicomNetworkRateLimit}_{targetAE ?? "DefaultAE"}";
-                await _rateLimiter.AcquirePermitAsync(rateLimiterKey, cancellationToken);
-
-                var policy = await _resiliencePolicyProvider.GetPolicyAsync(PolicyRegistryKeys.DicomNetworkResiliencePolicy);
-
-                var lowLevelResponse = await policy.ExecuteAsync(token => dicomClientOperation(token), cancellationToken);
-
-                if (!lowLevelResponse.IsSuccess)
-                {
-                    _logger.LogWarning("DICOM {OperationName} to AE {TargetAE} failed with status: {DicomStatus} - {StatusMessage}",
-                        operationName, targetAE, lowLevelResponse.DicomStatus, lowLevelResponse.StatusMessage);
-                    var errorDto = _errorHandlingService.HandleErrorResponse(lowLevelResponse, DicomServiceIdentifier); 
-                    // Create a failed TResponse; requires TResponse to have a constructor for errors or be mutable.
-                    // For simplicity, let's assume DicomOperationResultDto and its derivatives can represent failure.
-                    // This might mean TResponse needs a constructor that takes ServiceErrorDto.
-                    // Let's assume specific result DTOs have appropriate constructors.
-                    // Here, we throw a custom exception that ExternalServiceCoordinator will handle.
-                    throw new DicomNetworkOperationException(errorDto.Message, errorDto, lowLevelResponse.DicomStatus);
-                }
-
-                _logger.LogInformation("DICOM {OperationName} to AE {TargetAE} successful.", operationName, targetAE);
-                return createSuccessResponse(lowLevelResponse);
+                 await _rateLimiter.AcquirePermitAsync(_settings.RateLimitResourceKey, cancellationToken).ConfigureAwait(false);
             }
-            catch (DicomNetworkOperationException) // Already handled
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during DICOM {OperationName} to AE {TargetAE}", operationName, targetAE);
-                var errorDto = _errorHandlingService.HandleError(ex, DicomServiceIdentifier);
-                throw new DicomNetworkOperationException(errorDto.Message, ex, errorDto, 0x0000); // Generic failure status
-            }
-        }
 
-        public async Task<DicomOperationResultDto> SendCStoreAsync(DicomCStoreRequestDto request, CancellationToken cancellationToken)
-        {
-            return await ExecuteDicomOperationAsync(
-                "C-STORE",
-                request.TargetAE,
-                token => _dicomClient.SendCStoreAsync(
-                    request.TargetAE, request.TargetHost, request.TargetPort,
-                    request.DicomFilePaths, request.DicomFileStreams, token), // Assuming IDicomLowLevelClient signature matches
-                lowLevelResp => new DicomOperationResultDto(
-                    true, lowLevelResp.DicomStatus, lowLevelResp.StatusMessage, lowLevelResp.AffectedSopInstanceUids ?? new List<string>()),
-                cancellationToken);
-        }
+            _logger.Information($"Executing DICOM {operationName} to {targetAeDescription}.");
+            
+            var result = await _resiliencePolicy.ExecuteAsync(
+                ct => dicomClientOperation(ct), 
+                cancellationToken)
+                .ConfigureAwait(false);
 
-        public async Task<DicomOperationResultDto> SendCEchoAsync(DicomCEchoRequestDto request, CancellationToken cancellationToken)
-        {
-            return await ExecuteDicomOperationAsync(
-                "C-ECHO",
-                request.TargetAE,
-                token => _dicomClient.SendCEchoAsync(request.TargetAE, request.TargetHost, request.TargetPort, token),
-                lowLevelResp => new DicomOperationResultDto(true, lowLevelResp.DicomStatus, lowLevelResp.StatusMessage, new List<string>()),
-                cancellationToken);
+            // Assuming result has IsSuccessful and StatusMessage properties (like DicomOperationResultDto)
+            // This logging is generic; specific result types like DicomCFindResultDto might need custom logging.
+            dynamic dynResult = result!; // Use dynamic for simplicity if properties are common
+            _logger.Information($"DICOM {operationName} completed for {targetAeDescription}. Success: {dynResult.IsSuccessful}, Message: {dynResult.StatusMessage}");
+            
+            return result;
         }
-
-        public async Task<DicomCFindResultDto> SendCFindAsync(DicomCFindRequestDto request, CancellationToken cancellationToken)
+        catch (Exception ex) when (!(ex is OperationCanceledException && cancellationToken.IsCancellationRequested)) // Don't wrap explicit cancellations
         {
-             return await ExecuteDicomOperationAsync(
-                "C-FIND",
-                request.TargetAE,
-                token => _dicomClient.SendCFindAsync(
-                    request.TargetAE, request.TargetHost, request.TargetPort,
-                    request.QueryLevel, request.QueryDataset, token), // QueryDataset might be FO-DICOM DicomDataset or similar
-                lowLevelResp => new DicomCFindResultDto(
-                    true, lowLevelResp.DicomStatus, lowLevelResp.StatusMessage, lowLevelResp.FoundDatasets ?? new List<object>()),
-                cancellationToken);
+            _logger.Error(ex, $"Error during DICOM {operationName} to {targetAeDescription}.");
+            throw new DicomNetworkException($"Failed to execute DICOM {operationName} to {targetAeDescription}.", ex);
         }
-
-        public async Task<DicomOperationResultDto> SendCMoveAsync(DicomCMoveRequestDto request, CancellationToken cancellationToken)
+        finally
         {
-            return await ExecuteDicomOperationAsync(
-                "C-MOVE",
-                request.TargetAE,
-                token => _dicomClient.SendCMoveAsync(
-                    request.TargetAE, request.TargetHost, request.TargetPort,
-                    request.DestinationAE, request.IdentifiersDataset, token),
-                lowLevelResp => new DicomOperationResultDto(
-                    true, lowLevelResp.DicomStatus, lowLevelResp.StatusMessage, lowLevelResp.AffectedSopInstanceUids ?? new List<string>()),
-                cancellationToken);
+            _concurrencyLimiter.Release();
         }
     }
 
-    // Custom exception for DICOM Network operations
-    public class DicomNetworkOperationException : Exception
+    public Task<DicomOperationResultDto> SendCStoreAsync(DicomCStoreRequestDto request, CancellationToken cancellationToken = default)
     {
-        public ServiceErrorDto ErrorDetails { get; }
-        public ushort DicomStatus { get; }
+        var infraRequest = request.ToInfrastructureRequest(); // Assumes mapping extension exists
+        return ExecuteDicomOperationAsync("C-STORE", request.TargetAe.AeTitle,
+            ct => _dicomClient.SendCStoreAsync(infraRequest, ct), // This returns Infrastructure DTO
+            cancellationToken)
+            .ContinueWith(task => {
+                if (task.IsFaulted) throw task.Exception!.GetBaseException(); // Propagate original exception
+                return task.Result.ToGatewayResultDto(); // Map from Infrastructure DTO to Gateway DTO
+            }, cancellationToken);
+    }
 
-        public DicomNetworkOperationException(string message, ServiceErrorDto errorDetails, ushort dicomStatus) : base(message)
-        {
-            ErrorDetails = errorDetails;
-            DicomStatus = dicomStatus;
-        }
-        public DicomNetworkOperationException(string message, Exception innerException, ServiceErrorDto errorDetails, ushort dicomStatus) : base(message, innerException)
-        {
-            ErrorDetails = errorDetails;
-            DicomStatus = dicomStatus;
-        }
+    public Task<DicomOperationResultDto> SendCEchoAsync(DicomCEchoRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var infraRequest = request.ToInfrastructureRequest();
+        return ExecuteDicomOperationAsync("C-ECHO", request.TargetAe.AeTitle,
+            ct => _dicomClient.SendCEchoAsync(infraRequest, ct),
+            cancellationToken)
+             .ContinueWith(task => {
+                if (task.IsFaulted) throw task.Exception!.GetBaseException();
+                return task.Result.ToGatewayResultDto();
+            }, cancellationToken);
+    }
+
+    public Task<DicomCFindResultDto> SendCFindAsync(DicomCFindRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var infraRequest = request.ToInfrastructureRequest();
+        return ExecuteDicomOperationAsync("C-FIND", request.TargetAe.AeTitle,
+            ct => _dicomClient.SendCFindAsync(infraRequest, ct), // This returns Infrastructure CFindResult DTO
+            cancellationToken)
+             .ContinueWith(task => {
+                if (task.IsFaulted) throw task.Exception!.GetBaseException();
+                return task.Result.ToGatewayCFindResultDto(); // Map from Infrastructure DTO to Gateway DTO
+            }, cancellationToken);
+    }
+
+    public Task<DicomOperationResultDto> SendCMoveAsync(DicomCMoveRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var infraRequest = request.ToInfrastructureRequest();
+        return ExecuteDicomOperationAsync("C-MOVE", $"{request.TargetAe.AeTitle} to {request.DestinationAeTitle}",
+            ct => _dicomClient.SendCMoveAsync(infraRequest, ct),
+            cancellationToken)
+             .ContinueWith(task => {
+                if (task.IsFaulted) throw task.Exception!.GetBaseException();
+                return task.Result.ToGatewayResultDto();
+            }, cancellationToken);
+    }
+}
+
+// Custom exception for DICOM network errors
+public class DicomNetworkException : Exception
+{
+    public DicomNetworkException(string message) : base(message) { }
+    public DicomNetworkException(string message, Exception innerException) : base(message, innerException) { }
+}
+
+// --- Placeholder Mapping Extensions (Assume these exist or are implemented in a separate file/namespace) ---
+// These map DTOs from ServiceGateway.Models to/from REPO-INFRA's DTOs.
+public static class DicomRequestDtoMappingExtensions
+{
+    // To Infrastructure (Service Gateway -> REPO-INFRA)
+    public static TheSSS.DICOMViewer.Infrastructure.Models.DicomCStoreRequest ToInfrastructureRequest(this DicomCStoreRequestDto dto)
+    {
+        return new TheSSS.DICOMViewer.Infrastructure.Models.DicomCStoreRequest(
+            new TheSSS.DICOMViewer.Infrastructure.Models.DicomAETarget(dto.TargetAe.AeTitle, dto.TargetAe.Host, dto.TargetAe.Port),
+            dto.DicomFilePaths, // Assuming structure matches
+            dto.PreferredTransferSyntaxes);
+    }
+
+    public static TheSSS.DICOMViewer.Infrastructure.Models.DicomCEchoRequest ToInfrastructureRequest(this DicomCEchoRequestDto dto)
+    {
+        return new TheSSS.DICOMViewer.Infrastructure.Models.DicomCEchoRequest(
+            new TheSSS.DICOMViewer.Infrastructure.Models.DicomAETarget(dto.TargetAe.AeTitle, dto.TargetAe.Host, dto.TargetAe.Port));
+    }
+
+    public static TheSSS.DICOMViewer.Infrastructure.Models.DicomCFindRequest ToInfrastructureRequest(this DicomCFindRequestDto dto)
+    {
+         // Assuming DicomDataset is compatible or a mapping exists
+        return new TheSSS.DICOMViewer.Infrastructure.Models.DicomCFindRequest(
+            new TheSSS.DICOMViewer.Infrastructure.Models.DicomAETarget(dto.TargetAe.AeTitle, dto.TargetAe.Host, dto.TargetAe.Port),
+            dto.QueryLevel,
+            dto.QueryKeys // Direct pass if type matches, else map Dicom.DicomDataset
+            );
+    }
+
+    public static TheSSS.DICOMViewer.Infrastructure.Models.DicomCMoveRequest ToInfrastructureRequest(this DicomCMoveRequestDto dto)
+    {
+        return new TheSSS.DICOMViewer.Infrastructure.Models.DicomCMoveRequest(
+             new TheSSS.DICOMViewer.Infrastructure.Models.DicomAETarget(dto.TargetAe.AeTitle, dto.TargetAe.Host, dto.TargetAe.Port),
+             dto.DestinationAeTitle,
+             dto.IdentifiersToMove // Direct pass if type matches
+            );
+    }
+
+    // From Infrastructure (REPO-INFRA -> Service Gateway)
+    public static DicomOperationResultDto ToGatewayResultDto(this TheSSS.DICOMViewer.Infrastructure.Models.DicomOperationResult infraResult)
+    {
+        return new DicomOperationResultDto(
+            infraResult.IsSuccessful,
+            infraResult.StatusMessage,
+            infraResult.DicomStatusCode,
+            infraResult.ErrorMessage
+            );
+    }
+    
+    public static DicomCFindResultDto ToGatewayCFindResultDto(this TheSSS.DICOMViewer.Infrastructure.Models.DicomCFindResult infraResult)
+    {
+        return new DicomCFindResultDto(
+            infraResult.OperationResult.ToGatewayResultDto(),
+            infraResult.MatchingDatasets // Direct pass if type matches, else map List<Dicom.DicomDataset>
+            );
     }
 }

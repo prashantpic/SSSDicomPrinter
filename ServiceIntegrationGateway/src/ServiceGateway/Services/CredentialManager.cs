@@ -5,120 +5,162 @@ using Microsoft.Extensions.Options;
 using TheSSS.DICOMViewer.Integration.Configuration;
 using TheSSS.DICOMViewer.Integration.Interfaces;
 using TheSSS.DICOMViewer.Integration.Models;
-using TheSSS.DICOMViewer.CrossCutting.Logging; // Assuming ILoggerAdapter namespace
-// using TheSSS.DICOMViewer.CrossCutting.Security; // Assuming a secure storage utility from REPO-CROSS-CUTTING
+using TheSSS.DICOMViewer.Common.Interfaces; // Assuming ILoggerAdapter and ISecureDataStorage are here
+using System.Collections.Concurrent;
+using Microsoft.Extensions.Caching.Memory; // For a more robust cache
 
-namespace TheSSS.DICOMViewer.Integration.Services
+namespace TheSSS.DICOMViewer.Integration.Services;
+
+public class CredentialManager : ICredentialManager, IDisposable
 {
-    public class CredentialManager : ICredentialManager
+    private readonly CredentialManagerSettings _settings;
+    private readonly ILoggerAdapter _logger;
+    private readonly ISecureDataStorage? _secureStorage; // Nullable if some store types don't need it
+    private readonly IMemoryCache _cache; // Using IMemoryCache for better caching control
+
+    public CredentialManager(
+        IOptions<CredentialManagerSettings> settings,
+        ILoggerAdapter logger,
+        IMemoryCache memoryCache,
+        IServiceProvider serviceProvider) // To optionally resolve ISecureDataStorage
     {
-        private readonly CredentialManagerSettings _settings;
-        private readonly ILoggerAdapter<CredentialManager> _logger;
-        // private readonly ISecureStorageService _secureStorageService; // Example dependency for secure storage
+        _settings = settings.Value ?? throw new ArgumentNullException(nameof(settings));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _cache = memoryCache ?? throw new ArgumentNullException(nameof(memoryCache));
 
-        public CredentialManager(
-            IOptions<CredentialManagerSettings> settings,
-            ILoggerAdapter<CredentialManager> logger
-            // ISecureStorageService secureStorageService // Inject if using a specific secure store
-            )
+        // Conditionally resolve ISecureDataStorage if DPAPI or similar store is configured
+        if (_settings.StoreType.Equals("DPAPI", StringComparison.OrdinalIgnoreCase) ||
+            _settings.StoreType.Equals("AzureKeyVault", StringComparison.OrdinalIgnoreCase)) // Example
         {
-            _settings = settings.Value;
-            _logger = logger;
-            // _secureStorageService = secureStorageService;
+            _secureStorage = (ISecureDataStorage?)serviceProvider.GetService(typeof(ISecureDataStorage));
+            if (_secureStorage == null)
+            {
+                _logger.Error($"Secure storage type '{_settings.StoreType}' is configured, but ISecureDataStorage service is not registered.");
+                // This could be a fatal error depending on requirements.
+                // For now, allow it to proceed, but GetCredentialsAsync will fail for these types.
+            }
         }
-
-        public Task<ServiceCredentials> GetCredentialsAsync(string serviceIdentifier, CancellationToken cancellationToken)
+        
+        if (string.IsNullOrWhiteSpace(_settings.StoreType))
         {
-            _logger.LogInformation("Attempting to retrieve credentials for service: {ServiceIdentifier}", serviceIdentifier);
-
-            if (string.IsNullOrWhiteSpace(serviceIdentifier))
-            {
-                _logger.LogError("Service identifier cannot be null or empty.");
-                throw new ArgumentNullException(nameof(serviceIdentifier));
-            }
-
-            if (_settings.ServiceCredentialMappings == null || !_settings.ServiceCredentialMappings.TryGetValue(serviceIdentifier, out var credentialConfig))
-            {
-                _logger.LogError("No credential mapping found for service identifier: {ServiceIdentifier}", serviceIdentifier);
-                throw new InvalidOperationException($"Credential configuration not found for service: {serviceIdentifier}");
-            }
-
-            ServiceCredentials credentials = null;
-
-            switch (credentialConfig.SourceType.ToLowerInvariant())
-            {
-                case "environment":
-                    credentials = GetFromEnvironment(credentialConfig, serviceIdentifier);
-                    break;
-                case "configuration": // Plain text in config - less secure, use for non-sensitive or dev
-                    credentials = GetFromConfiguration(credentialConfig, serviceIdentifier);
-                    break;
-                case "dpapi": // Example using a secure store wrapper
-                    // credentials = await _secureStorageService.GetCredentialsAsync(credentialConfig.StorageKey, cancellationToken);
-                    _logger.LogWarning("DPAPI or dedicated secure storage not fully implemented in this example CredentialManager. Using placeholder logic for {ServiceIdentifier}.", serviceIdentifier);
-                    // Placeholder for DPAPI or other secure store:
-                    credentials = new ServiceCredentials // Dummy credentials for example
-                    {
-                        Username = $"{serviceIdentifier}_user_dpapi_placeholder",
-                        Password = "dpapi_secure_password_placeholder",
-                        ApiKey = "dpapi_api_key_placeholder"
-                    };
-                    break;
-                default:
-                    _logger.LogError("Unsupported credential source type '{SourceType}' for service: {ServiceIdentifier}", credentialConfig.SourceType, serviceIdentifier);
-                    throw new NotSupportedException($"Credential source type '{credentialConfig.SourceType}' is not supported.");
-            }
-            
-            if (credentials == null)
-            {
-                 _logger.LogError("Failed to retrieve credentials for service: {ServiceIdentifier} from source: {SourceType}", serviceIdentifier, credentialConfig.SourceType);
-                 throw new InvalidOperationException($"Could not retrieve credentials for {serviceIdentifier}.");
-            }
-
-            _logger.LogInformation("Successfully retrieved credentials for service: {ServiceIdentifier} from {SourceType}", serviceIdentifier, credentialConfig.SourceType);
-            return Task.FromResult(credentials);
-        }
-
-        private ServiceCredentials GetFromEnvironment(CredentialSourceConfig config, string serviceIdentifier)
-        {
-            var username = Environment.GetEnvironmentVariable(config.UsernameKey ?? $"{serviceIdentifier}_USERNAME");
-            var password = Environment.GetEnvironmentVariable(config.PasswordKey ?? $"{serviceIdentifier}_PASSWORD");
-            var apiKey = Environment.GetEnvironmentVariable(config.ApiKeyKey ?? $"{serviceIdentifier}_APIKEY");
-            var token = Environment.GetEnvironmentVariable(config.TokenKey ?? $"{serviceIdentifier}_TOKEN");
-
-            if (string.IsNullOrEmpty(username) && string.IsNullOrEmpty(apiKey) && string.IsNullOrEmpty(token))
-            {
-                _logger.LogWarning("No environment credentials found for {ServiceIdentifier} using keys: User={UserKey}, Pass={PassKey}, ApiKey={ApiKeyKey}, Token={TokenKey}",
-                    serviceIdentifier, config.UsernameKey, config.PasswordKey, config.ApiKeyKey, config.TokenKey);
-                return null;
-            }
-
-            return new ServiceCredentials
-            {
-                Username = username,
-                Password = password,
-                ApiKey = apiKey,
-                Token = token
-            };
-        }
-
-        private ServiceCredentials GetFromConfiguration(CredentialSourceConfig config, string serviceIdentifier)
-        {
-             // Directly from config.ServiceCredentialMappings[serviceIdentifier].Values - USE WITH CAUTION for production
-            if (config.Values == null || 
-                (!config.Values.ContainsKey("Username") && !config.Values.ContainsKey("ApiKey") && !config.Values.ContainsKey("Token")) )
-            {
-                 _logger.LogWarning("No direct configuration credentials found for {ServiceIdentifier} in CredentialManagerSettings.Values", serviceIdentifier);
-                 return null;
-            }
-
-            return new ServiceCredentials
-            {
-                Username = config.Values.TryGetValue("Username", out var user) ? user : null,
-                Password = config.Values.TryGetValue("Password", out var pass) ? pass : null,
-                ApiKey = config.Values.TryGetValue("ApiKey", out var apiKey) ? apiKey : null,
-                Token = config.Values.TryGetValue("Token", out var tokenVal) ? tokenVal : null
-            };
+            _logger.Warning("CredentialManager StoreType is not configured. Defaulting to EnvironmentVariables.");
+            _settings.StoreType = "EnvironmentVariables";
         }
     }
+
+    public async Task<ServiceCredentials> GetCredentialsAsync(string serviceIdentifier, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(serviceIdentifier))
+        {
+            throw new ArgumentException("Service identifier cannot be null or empty.", nameof(serviceIdentifier));
+        }
+
+        string cacheKey = $"ServiceCredentials_{serviceIdentifier}_{_settings.StoreType}";
+
+        // Try to get from cache
+        if (_cache.TryGetValue(cacheKey, out ServiceCredentials? cachedCredentials) && cachedCredentials != null)
+        {
+             _logger.Debug($"Returning cached credentials for service '{serviceIdentifier}'.");
+             return cachedCredentials;
+        }
+
+        _logger.Information($"Retrieving credentials for service '{serviceIdentifier}' using store type: {_settings.StoreType}.");
+
+        ServiceCredentials credentials;
+        try
+        {
+            switch (_settings.StoreType.ToLowerInvariant())
+            {
+                case "environmentvariables":
+                    credentials = GetCredentialsFromEnvironmentVariables(serviceIdentifier);
+                    break;
+                case "dpapi":
+                    if (_secureStorage == null) throw new InvalidOperationException("DPAPI store type configured, but ISecureDataStorage is not available.");
+                    credentials = await GetCredentialsFromSecureStorageAsync(_secureStorage, serviceIdentifier, "DPAPI", cancellationToken);
+                    break;
+                // Example for Azure Key Vault (conceptual)
+                // case "azurekeyvault":
+                //     if (_secureStorage == null) throw new InvalidOperationException("AzureKeyVault store type configured, but ISecureDataStorage is not available (needs specific KV client).");
+                //     credentials = await GetCredentialsFromSecureStorageAsync(_secureStorage, serviceIdentifier, "AzureKeyVault", cancellationToken);
+                //     break;
+                default:
+                    throw new NotSupportedException($"Credential store type '{_settings.StoreType}' is not supported.");
+            }
+
+            var cacheEntryOptions = new MemoryCacheEntryOptions()
+                .SetAbsoluteExpiration(_settings.CredentialCacheDuration > TimeSpan.Zero ? _settings.CredentialCacheDuration : TimeSpan.FromMinutes(5)); // Default cache if not set
+
+            _cache.Set(cacheKey, credentials, cacheEntryOptions);
+            _logger.Information($"Successfully retrieved and cached credentials for service '{serviceIdentifier}'. Cache expires in {_settings.CredentialCacheDuration}.");
+
+            // TODO: Implement credential rotation checks if _settings.EnableCredentialRotationChecks is true.
+            // This might involve:
+            // 1. Storing credential acquisition time.
+            // 2. Periodically (e.g., on next GetCredentialsAsync after some interval, or background task) re-fetching.
+            // 3. If _settings.EnableCredentialRotationChecks is true and cache duration is relatively short,
+            //    the natural cache expiry and re-fetch might suffice for some rotation scenarios.
+            //    A more proactive check would require comparing with an expected rotation schedule or version.
+
+            return credentials;
+        }
+        catch (CredentialRetrievalException) { throw; } // Re-throw custom exception
+        catch (Exception ex)
+        {
+            _logger.Error(ex, $"Failed to retrieve credentials for service '{serviceIdentifier}' from store type '{_settings.StoreType}'.");
+            throw new CredentialRetrievalException($"Failed to retrieve credentials for service '{serviceIdentifier}'. See inner exception.", ex);
+        }
+    }
+
+    private ServiceCredentials GetCredentialsFromEnvironmentVariables(string serviceIdentifier)
+    {
+        string? username = Environment.GetEnvironmentVariable($"{serviceIdentifier.ToUpperInvariant()}_USERNAME");
+        string? password = Environment.GetEnvironmentVariable($"{serviceIdentifier.ToUpperInvariant()}_PASSWORD");
+        string? apiKey = Environment.GetEnvironmentVariable($"{serviceIdentifier.ToUpperInvariant()}_APIKEY");
+        string? token = Environment.GetEnvironmentVariable($"{serviceIdentifier.ToUpperInvariant()}_TOKEN");
+
+        if (string.IsNullOrWhiteSpace(username) && string.IsNullOrWhiteSpace(apiKey) && string.IsNullOrWhiteSpace(token) && string.IsNullOrWhiteSpace(password))
+        {
+            _logger.Warning($"No environment variables found for service '{serviceIdentifier}'. Conventions: {serviceIdentifier.ToUpperInvariant()}_USERNAME, _PASSWORD, _APIKEY, _TOKEN.");
+            // Consider if this should be an error or return empty credentials
+            throw new CredentialRetrievalException($"No environment variable credentials found for '{serviceIdentifier}'.");
+        }
+        return new ServiceCredentials(username, password, apiKey, token);
+    }
+
+    private async Task<ServiceCredentials> GetCredentialsFromSecureStorageAsync(
+        ISecureDataStorage storage, string serviceIdentifier, string storeName, CancellationToken cancellationToken)
+    {
+        // Convention for secret keys in secure store: e.g., "ServiceIntegrationGateway_OdooApi_Username"
+        string prefix = $"ServiceIntegrationGateway_{serviceIdentifier}_";
+        
+        string? username = await storage.RetrieveSecretAsync($"{prefix}Username", cancellationToken).ConfigureAwait(false);
+        string? password = await storage.RetrieveSecretAsync($"{prefix}Password", cancellationToken).ConfigureAwait(false);
+        string? apiKey = await storage.RetrieveSecretAsync($"{prefix}ApiKey", cancellationToken).ConfigureAwait(false);
+        string? token = await storage.RetrieveSecretAsync($"{prefix}Token", cancellationToken).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(username) && string.IsNullOrWhiteSpace(apiKey) && string.IsNullOrWhiteSpace(token) && string.IsNullOrWhiteSpace(password))
+        {
+            _logger.Warning($"No credentials found in secure store '{storeName}' for identifier '{serviceIdentifier}' with prefix '{prefix}'.");
+            throw new CredentialRetrievalException($"No credentials found in secure store '{storeName}' for '{serviceIdentifier}'.");
+        }
+        return new ServiceCredentials(username, password, apiKey, token);
+    }
+    
+    public void Dispose()
+    {
+        // If _cache implements IDisposable (like MemoryCache does), it's managed by DI container.
+        // No explicit disposal needed here unless this class creates its own IDisposable resources.
+        GC.SuppressFinalize(this);
+    }
 }
+
+// Assume this interface and a concrete implementation (e.g., DpapiSecureDataStorage)
+// are provided by REPO-CROSS-CUTTING and registered in DI.
+// namespace TheSSS.DICOMViewer.Common.Interfaces
+// {
+//     public interface ISecureDataStorage
+//     {
+//         Task<string?> RetrieveSecretAsync(string key, CancellationToken cancellationToken = default);
+//         Task StoreSecretAsync(string key, string secret, CancellationToken cancellationToken = default);
+//     }
+// }

@@ -1,144 +1,144 @@
 using System;
-using System.Net.Http;
+using System.Collections.Concurrent;
+using System.Linq;
 using Microsoft.Extensions.Options;
 using Polly;
-using Polly.Contrib.WaitAndRetry; // For Backoff.DecorrelatedJitterBackoffV2
-using Polly.Registry;
+using Polly.CircuitBreaker;
+using Polly.Retry;
 using Polly.Timeout;
 using TheSSS.DICOMViewer.Integration.Configuration;
 using TheSSS.DICOMViewer.Integration.Interfaces;
-using TheSSS.DICOMViewer.CrossCutting.Logging; // Assuming ILoggerAdapter namespace
-using System.Collections.Generic; // For IEnumerable
-using System.Threading.Tasks; // For Task
+using TheSSS.DICOMViewer.Common.Interfaces; // Assuming ILoggerAdapter is here
 
-namespace TheSSS.DICOMViewer.Integration.Policies
+namespace TheSSS.DICOMViewer.Integration.Policies;
+
+public class ResiliencePolicyProvider : IResiliencePolicyProvider
 {
-    public class ResiliencePolicyProvider : IResiliencePolicyProvider
+    private readonly ResilienceSettings _settings;
+    private readonly ILoggerAdapter _logger;
+    private readonly ConcurrentDictionary<string, IAsyncPolicy> _policyCache = new ConcurrentDictionary<string, IAsyncPolicy>();
+
+    public ResiliencePolicyProvider(IOptions<ResilienceSettings> settings, ILoggerAdapter logger)
     {
-        private readonly IPolicyRegistry<string> _policyRegistry;
-        private readonly ILoggerAdapter<ResiliencePolicyProvider> _logger;
-        private readonly ResilienceSettings _resilienceSettings;
+        _settings = settings.Value ?? throw new ArgumentNullException(nameof(settings));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        public ResiliencePolicyProvider(
-            IOptions<ResilienceSettings> resilienceSettings,
-            ILoggerAdapter<ResiliencePolicyProvider> logger)
+        BuildAndCachePolicies();
+    }
+
+    private void BuildAndCachePolicies()
+    {
+        if (_settings?.Policies == null || !_settings.Policies.Any())
         {
-            _logger = logger;
-            _resilienceSettings = resilienceSettings.Value ?? new ResilienceSettings(); // Ensure settings are not null
-            _policyRegistry = new PolicyRegistry();
-
-            InitializePolicies();
+            _logger.Warning("ResilienceSettings.Policies is null or empty. No custom policies will be configured. Defaulting to NoOp.");
+            return;
         }
 
-        private void InitializePolicies()
+        foreach (var policyConfig in _settings.Policies)
         {
-            _logger.LogInformation("Initializing resilience policies.");
-
-            // Default API Resilience Policy
-            var defaultApiPolicySettings = _resilienceSettings.Policies.TryGetValue(PolicyRegistryKeys.DefaultApiResiliencePolicy, out var defaultSettings)
-                ? defaultSettings : new ResiliencePolicySetting(); // Fallback to default settings
-
-            var defaultApiPolicy = CreatePolicy(defaultApiPolicySettings, PolicyRegistryKeys.DefaultApiResiliencePolicy);
-            _policyRegistry.Add(PolicyRegistryKeys.DefaultApiResiliencePolicy, defaultApiPolicy);
-
-            // DICOM Network Resilience Policy
-            var dicomNetworkPolicySettings = _resilienceSettings.Policies.TryGetValue(PolicyRegistryKeys.DicomNetworkResiliencePolicy, out var dicomSettings)
-                ? dicomSettings : new ResiliencePolicySetting { RetryCount = 5 }; // Example specific default
-
-            var dicomNetworkPolicy = CreatePolicy(dicomNetworkPolicySettings, PolicyRegistryKeys.DicomNetworkResiliencePolicy);
-            _policyRegistry.Add(PolicyRegistryKeys.DicomNetworkResiliencePolicy, dicomNetworkPolicy);
-
-            // Add other policies based on _resilienceSettings.Policies
-            foreach (var policyConfigEntry in _resilienceSettings.Policies)
+            if (string.IsNullOrWhiteSpace(policyConfig.Key))
             {
-                if (!_policyRegistry.ContainsKey(policyConfigEntry.Key)) // Avoid re-adding if already handled above
-                {
-                    var policy = CreatePolicy(policyConfigEntry.Value, policyConfigEntry.Key);
-                    _policyRegistry.Add(policyConfigEntry.Key, policy);
-                    _logger.LogInformation("Created and registered resilience policy: {PolicyKey}", policyConfigEntry.Key);
-                }
-            }
-        }
-
-        private IAsyncPolicy CreatePolicy(ResiliencePolicySetting settings, string policyKey)
-        {
-            // Retry Policy
-            var retryPolicy = Policy
-                .Handle<HttpRequestException>()
-                .Or<TimeoutRejectedException>() // Thrown by Polly's TimeoutPolicy
-                .Or<TaskCanceledException>(ex => ex.CancellationToken == default) // Handle non-cancellation token related task cancellations as transient
-                // Add other transient exceptions specific to services, e.g., SmtpException, Dicom specific transient errors
-                .WaitAndRetryAsync(
-                    settings.RetryCount,
-                    retryAttempt => Backoff.DecorrelatedJitterBackoffV2(TimeSpan.FromMilliseconds(settings.RetryDelayBaseMs), retryAttempt),
-                    (exception, timespan, retryCount, context) =>
-                    {
-                        _logger.LogWarning(exception, "Policy {PolicyKey}: Retry {RetryCount} after {Timespan} due to {ExceptionType}.",
-                                           policyKey, retryCount, timespan, exception.GetType().Name);
-                    });
-
-            // Circuit Breaker Policy
-            var circuitBreakerPolicy = Policy
-                .Handle<HttpRequestException>() // Define what exceptions trip the circuit
-                .Or<TimeoutRejectedException>()
-                .CircuitBreakerAsync(
-                    settings.CircuitBreakerFailureThreshold,
-                    TimeSpan.FromMilliseconds(settings.CircuitBreakerDurationOfBreakMs),
-                    onBreak: (exception, duration, context) =>
-                    {
-                        _logger.LogWarning(exception, "Policy {PolicyKey}: Circuit breaker opened for {Duration} due to {ExceptionType}.",
-                                           policyKey, duration, exception.GetType().Name);
-                    },
-                    onReset: (context) =>
-                    {
-                        _logger.LogInformation("Policy {PolicyKey}: Circuit breaker reset.", policyKey);
-                    },
-                    onHalfOpen: () =>
-                    {
-                        _logger.LogInformation("Policy {PolicyKey}: Circuit breaker half-open. Next call is a test.", policyKey);
-                    });
-
-            // Timeout Policy
-            var timeoutPolicy = Policy.TimeoutAsync(TimeSpan.FromMilliseconds(settings.TimeoutMs));
-
-            // Combine policies: Timeout wraps CircuitBreaker, which wraps Retry.
-            // Order is important: outer policies execute first.
-            // Timeout -> Retry -> CircuitBreaker (Retry should be inside CB so CB counts retried failures)
-            // Or Timeout -> CircuitBreaker -> Retry (CB breaks, then retries are attempted after CB reset. This is usually preferred)
-            
-            // Let's use: Timeout -> CircuitBreaker -> Retry
-            // The request flows inward:
-            // 1. Timeout policy starts a timer.
-            // 2. CircuitBreaker checks its state. If open, throws BrokenCircuitException. If closed/half-open, passes call.
-            // 3. Retry policy executes the action. If it fails with a handled transient error, it retries.
-            //    If retries are exhausted, the exception propagates to CircuitBreaker.
-            // 4. CircuitBreaker notes the failure. If threshold met, it breaks.
-            // 5. If timeout occurs at any point, TimeoutRejectedException is thrown.
-
-            // Standard Polly wrapping order:
-            // Timeout (outermost) -> Retry -> CircuitBreaker (innermost for action) - this is often debated.
-            // Let's consider Polly docs recommendation: Retry -> CB -> Action
-            // And Timeout can be outermost or innermost. Outermost timeout controls the whole operation including retries.
-            // Example: Timeout > Retry > Circuit Breaker > Action (action is the actual HTTP call)
-
-            return timeoutPolicy.WrapAsync(circuitBreakerPolicy.WrapAsync(retryPolicy));
-        }
-
-        public Task<IAsyncPolicy> GetPolicyAsync(string policyKey) // Task to align with potential async init in future
-        {
-            if (_policyRegistry.TryGet(policyKey, out IAsyncPolicy policy))
-            {
-                return Task.FromResult(policy);
+                _logger.Warning("Skipping policy configuration with empty key.");
+                continue;
             }
 
-            _logger.LogWarning("Resilience policy with key '{PolicyKey}' not found. Falling back to default API policy.", policyKey);
-            if (_policyRegistry.TryGet(PolicyRegistryKeys.DefaultApiResiliencePolicy, out IAsyncPolicy defaultPolicy))
+            var policyBuilder = Policy.WrapAsync(); // Start with a NoOp policy to wrap others around
+
+            // Order of wrapping matters: Timeout should be outermost, then Retry, then CircuitBreaker
+            // Or, if using PolicyWrap: Timeout -> Retry -> CircuitBreaker (inner-most)
+            // Policy.WrapAsync(outer, inner) means outer executes first (e.g. timeout).
+            // Let's build from inner to outer for clarity.
+
+            IAsyncPolicy? currentPolicy = null;
+
+            // 1. Circuit Breaker (Innermost)
+            if (policyConfig.CircuitBreaker.Enabled)
             {
-                 return Task.FromResult(defaultPolicy);
+                currentPolicy = Policy
+                    .Handle<Exception>(e => !(e is OperationCanceledException)) // Don't break on cancellation
+                    .CircuitBreakerAsync(
+                        policyConfig.CircuitBreaker.ExceptionsAllowedBeforeBreaking,
+                        policyConfig.CircuitBreaker.DurationOfBreak,
+                        onBreak: (exception, breakDelay, context) =>
+                        {
+                            _logger.Error(exception, $"Circuit breaker for policy '{policyConfig.Key}' (context: {context.OperationKey}) is opening for {breakDelay.TotalSeconds}s.");
+                        },
+                        onReset: (context) =>
+                        {
+                            _logger.Information($"Circuit breaker for policy '{policyConfig.Key}' (context: {context.OperationKey}) is resetting.");
+                        },
+                        onHalfOpen: () =>
+                        {
+                            _logger.Information($"Circuit breaker for policy '{policyConfig.Key}' is transitioning to half-open.");
+                        });
+            }
+
+            // 2. Retry (Wraps Circuit Breaker or is standalone)
+            if (policyConfig.Retry.Enabled)
+            {
+                var retryPolicy = Policy
+                     .Handle<Exception>(e => !(e is OperationCanceledException || e is BrokenCircuitException)) // Don't retry on cancellation or if circuit is broken
+                     .WaitAndRetryAsync(
+                         policyConfig.Retry.RetryCount,
+                         retryAttempt => TimeSpan.FromSeconds(Math.Pow(policyConfig.Retry.SleepDurationFactor.TotalSeconds, retryAttempt))
+                             + TimeSpan.FromMilliseconds(new Random().Next(0, policyConfig.Retry.MaxJitterMilliseconds)),
+                         (exception, timeSpan, retryCount, context) =>
+                         {
+                             _logger.Warning(exception, $"Retry #{retryCount} for policy '{policyConfig.Key}' (context: {context.OperationKey}) due to: {exception.GetType().Name}. Waiting {timeSpan.TotalSeconds:N1}s.");
+                         });
+                
+                currentPolicy = currentPolicy != null ? retryPolicy.WrapAsync(currentPolicy) : retryPolicy;
+            }
+
+            // 3. Timeout (Outermost)
+            if (policyConfig.Timeout.Enabled)
+            {
+                 var timeoutPolicy = Policy.TimeoutAsync(
+                     policyConfig.Timeout.Timeout,
+                     TimeoutStrategy.Optimistic, // For genuinely async operations
+                     onTimeoutAsync: (context, timespan, task, exception) =>
+                     {
+                         _logger.Warning(exception, $"Operation timed out after {timespan.TotalSeconds}s for policy '{policyConfig.Key}' (context: {context.OperationKey}). Task status: {task?.Status}");
+                         // The task is already faulted with TimeoutRejectedException by Polly
+                         return Task.CompletedTask;
+                     });
+
+                currentPolicy = currentPolicy != null ? timeoutPolicy.WrapAsync(currentPolicy) : timeoutPolicy;
+            }
+
+            if (currentPolicy == null)
+            {
+                 currentPolicy = Policy.NoOpAsync(); // Fallback if no policies enabled for the key
+                 _logger.Information($"Policy '{policyConfig.Key}' has no specific resilience mechanisms enabled; using NoOp policy.");
             }
             
-            _logger.LogError("Default resilience policy not found either. Returning NoOp policy.");
-            return Task.FromResult(Policy.NoOpAsync()); // Fallback to NoOp if even default is missing
+            // Add a Context with the policy key for logging within Polly's handlers
+            // This context can be passed when calling policy.ExecuteAsync(ctx => ..., context)
+            // However, for GetPolicyAsync, we return the policy, and the caller provides context.
+            // We can't pre-bake context here easily unless it's always the same.
+            // The context logging in OnBreak/OnRetry etc. will use the context provided at execution time.
+
+            _policyCache.AddOrUpdate(policyConfig.Key, currentPolicy, (key, existingPolicy) => currentPolicy);
+            _logger.Information($"Configured and cached resilience policy for key: '{policyConfig.Key}'.");
         }
     }
+
+    public IAsyncPolicy GetPolicyAsync(string policyKey)
+    {
+        if (_policyCache.TryGetValue(policyKey, out var policy))
+        {
+            return policy;
+        }
+
+        // If a policy key is requested but not found, it's a configuration error.
+        // It's safer to throw than to return a NoOp policy silently, as this might hide issues.
+        _logger.Error($"Resilience policy with key '{policyKey}' not found in configuration or cache.");
+        throw new PolicyNotFoundException($"Resilience policy with key '{policyKey}' not found. Ensure it is configured in ResilienceSettings.");
+    }
+}
+
+// Custom exception for missing policy configuration
+public class PolicyNotFoundException : KeyNotFoundException
+{
+    public PolicyNotFoundException(string message) : base(message) { }
 }
