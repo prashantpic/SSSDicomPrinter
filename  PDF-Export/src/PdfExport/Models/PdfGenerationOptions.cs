@@ -1,5 +1,4 @@
 using QuestPDF.Helpers;
-using TheSSS.DicomViewer.Common.Data;
 
 namespace TheSSS.DicomViewer.Pdf.Models
 {
@@ -8,8 +7,8 @@ namespace TheSSS.DicomViewer.Pdf.Models
         public string? Password { get; set; }
         public PdfComplianceLevel ComplianceLevel { get; set; }
         public DicomMetadataEmbeddingOptions? MetadataEmbeddingOptions { get; set; }
-        public PageSize DefaultPaperSize { get; set; }
-        public int DefaultResolutionDpi { get; set; }
+        public PageSize DefaultPaperSize { get; set; } = PageSizes.A4;
+        public int DefaultResolutionDpi { get; set; } = 300;
         public bool IsMonochrome { get; set; }
     }
 }
