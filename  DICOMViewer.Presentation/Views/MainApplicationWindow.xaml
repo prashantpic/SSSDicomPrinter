@@ -1,0 +1,32 @@
+<Window x:Class="TheSSS.DICOMViewer.Presentation.Views.MainApplicationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:TheSSS.DICOMViewer.Presentation.ViewModels"
+        xmlns:skia="clr-namespace:SkiaSharp.Views.WPF;assembly=SkiaSharp.Views.WPF"
+        xmlns:local="clr-namespace:TheSSS.DICOMViewer.Presentation"
+        Title="{Binding Title}" Height="800" Width="1200">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/Styles/FluentStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="{DynamicResource Menu_File}">
+                <MenuItem Header="{DynamicResource Menu_Open}" Command="{Binding OpenDicomFileCommand}"/>
+            </MenuItem>
+            <MenuItem Header="{DynamicResource Menu_Settings}"
+                      Command="{Binding OpenSettingsDialogCommand}"/>
+        </Menu>
+
+        <ContentControl Content="{Binding CurrentMainViewModel}"
+                        DockPanel.Dock="Top"/>
+        
+        <StatusBar DockPanel.Dock="Bottom">
+            <TextBlock Text="{DynamicResource Status_Ready}"/>
+        </StatusBar>
+    </DockPanel>
+</Window>
