@@ -1,120 +1,113 @@
-namespace TheSSS.DICOMViewer.Monitoring.Integrations.HealthChecks;
-
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using TheSSS.DICOMViewer.Monitoring.UseCaseHandlers;
-using TheSSS.DICOMViewer.Monitoring.Contracts;
-using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
+using TheSSS.DICOMViewer.Monitoring.Contracts; // Assuming HealthReportDto and SystemHealthStatus enum are here
+using TheSSS.DICOMViewer.Monitoring.UseCaseHandlers; // Assuming HealthAggregationService is here
 
-public class DicomSystemHealthCheck : IHealthCheck
+namespace TheSSS.DICOMViewer.Monitoring.Integrations.HealthChecks
 {
-    private readonly HealthAggregationService _healthAggregationService;
-    private readonly ILogger<DicomSystemHealthCheck> _logger;
-
-    public DicomSystemHealthCheck(
-        HealthAggregationService healthAggregationService, // This should be resolved correctly based on DI (e.g. Scoped)
-        ILogger<DicomSystemHealthCheck> logger)
-    {
-        _healthAggregationService = healthAggregationService;
-        _logger = logger;
-    }
-
     /// <summary>
-    /// Runs the health check, aggregating data and translating it to ASP.NET Core HealthCheckResult.
+    /// Implements an ASP.NET Core <see cref="IHealthCheck"/> for the overall DICOM system.
+    /// It queries the <see cref="HealthAggregationService"/> to determine the current health status.
     /// </summary>
-    /// <param name="context">The context for the health check.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>A task that represents the asynchronous operation, returning the HealthCheckResult.</returns>
-    public async Task<HealthCheckResult> CheckHealthAsync(
-        HealthCheckContext context,
-        CancellationToken cancellationToken = default)
+    public class DicomSystemHealthCheck : IHealthCheck
     {
-        _logger.LogDebug("Running DicomSystemHealthCheck for ASP.NET Core Health Check endpoint.");
+        private readonly HealthAggregationService _healthAggregationService; // Assuming this concrete type or an interface
+        private readonly ILogger<DicomSystemHealthCheck> _logger;
 
-        try
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DicomSystemHealthCheck"/> class.
+        /// </summary>
+        /// <param name="healthAggregationService">The service responsible for aggregating health data.</param>
+        /// <param name="logger">The logger.</param>
+        public DicomSystemHealthCheck(
+            HealthAggregationService healthAggregationService, // To be replaced by IHealthAggregationService if defined
+            ILogger<DicomSystemHealthCheck> logger)
         {
-            // Aggregate health data
-            var healthReport = await _healthAggregationService.AggregateHealthDataAsync(cancellationToken);
+            _healthAggregationService = healthAggregationService ?? throw new ArgumentNullException(nameof(healthAggregationService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
 
-            // Translate overall status to HealthStatus enum
-            var status = healthReport.OverallStatus switch
+        /// <summary>
+        /// Runs the health check.
+        /// </summary>
+        /// <param name="context">A context object associated with the current health check.</param>
+        /// <param name="cancellationToken">A <see cref="CancellationToken"/> that can be used to cancel the health check.</param>
+        /// <returns>A <see cref="Task{HealthCheckResult}"/> that completes when the health check has finished,
+        /// yielding the status of the component being checked.</returns>
+        public async Task<HealthCheckResult> CheckHealthAsync(
+            HealthCheckContext context,
+            CancellationToken cancellationToken = default)
+        {
+            _logger.LogInformation("Performing DicomSystemHealthCheck...");
+            try
             {
-                OverallHealthStatus.Healthy => HealthStatus.Healthy,
-                OverallHealthStatus.Warning => HealthStatus.Degraded, // ASP.NET Core equivalent for Warning
-                OverallHealthStatus.Error => HealthStatus.Unhealthy,
-                OverallHealthStatus.Critical => HealthStatus.Unhealthy, // Critical also implies Unhealthy for this check
-                _ => HealthStatus.Unknown // Default case, should ideally not happen with proper OverallStatus determination
-            };
+                HealthReportDto healthReport = await _healthAggregationService.AggregateHealthAsync(cancellationToken);
 
-            // Prepare data for the health check result
-            var data = new Dictionary<string, object>
-            {
-                { "Timestamp", healthReport.Timestamp },
-                { "OverallStatus", healthReport.OverallStatus.ToString() }
-            };
+                var healthStatus = healthReport.SystemStatus switch
+                {
+                    SystemHealthStatus.Healthy => Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy,
+                    SystemHealthStatus.Warning => Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded,
+                    SystemHealthStatus.Error => Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy,
+                    SystemHealthStatus.Unknown => Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy, // Default to Unhealthy for Unknown
+                    _ => Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy,
+                };
 
-            // Add specific component health information for richer reporting
-            if (healthReport.StorageHealth != null) data["StorageHealth"] = healthReport.StorageHealth;
-            if (healthReport.DatabaseHealth != null) data["DatabaseHealth"] = healthReport.DatabaseHealth;
-            if (healthReport.LicenseStatus != null) data["LicenseStatus"] = healthReport.LicenseStatus;
-            if (healthReport.SystemErrorSummary != null) data["SystemErrorSummary"] = healthReport.SystemErrorSummary;
-            if (healthReport.PacsConnections != null && healthReport.PacsConnections.Any()) data["PacsConnections"] = healthReport.PacsConnections;
-            if (healthReport.AutomatedTaskStatuses != null && healthReport.AutomatedTaskStatuses.Any()) data["AutomatedTaskStatuses"] = healthReport.AutomatedTaskStatuses;
+                var data = new Dictionary<string, object>
+                {
+                    { "Timestamp", healthReport.Timestamp },
+                    { "OverallReportStatus", healthReport.SystemStatus.ToString() }
+                };
+
+                // Optionally, add more details from the health report to the 'data' dictionary
+                // Example:
+                // if (healthReport.StorageInfo != null) data.Add("StorageUsedPercentage", healthReport.StorageInfo.UsedPercentage);
+                // if (healthReport.DatabaseConnectivity != null) data.Add("DatabaseConnected", healthReport.DatabaseConnectivity.IsConnected);
+                // Add other relevant details from healthReport.Details or specific DTOs if needed by consumers of health check.
+                // For simplicity, keeping it concise here.
+                if (healthReport.Details != null)
+                {
+                    foreach(var detail in healthReport.Details)
+                    {
+                        data.TryAdd(detail.Key, detail.Value ?? "N/A");
+                    }
+                }
 
 
-            string description = $"DICOM Viewer System Health: {healthReport.OverallStatus}.";
-            if (status != HealthStatus.Healthy)
-            {
-                 var issues = new List<string>();
-                 if (healthReport.DatabaseHealth?.IsConnected == false) issues.Add($"Database connection failed: {healthReport.DatabaseHealth.ErrorMessage ?? "No details"}.");
-                 if (healthReport.LicenseStatus?.IsValid == false) issues.Add($"License invalid/expired: {healthReport.LicenseStatus.StatusMessage}.");
-                 if (healthReport.PacsConnections != null)
-                 {
-                     var failedPacs = healthReport.PacsConnections.Where(p => !p.IsConnected).ToList();
-                     if (failedPacs.Any()) issues.Add($"PACS connections failed for: {string.Join(", ", failedPacs.Select(p => p.PacsNodeId))}.");
-                 }
-                 if (healthReport.StorageHealth?.UsedPercentage > 95) issues.Add($"Storage usage critical: {healthReport.StorageHealth.UsedPercentage:F1}%."); // Example high threshold
-                 else if (healthReport.StorageHealth?.UsedPercentage > 85) issues.Add($"Storage usage warning: {healthReport.StorageHealth.UsedPercentage:F1}%."); // Example warning threshold
-                 if (healthReport.SystemErrorSummary?.CriticalErrorCountLast24Hours > 0) issues.Add($"Critical system errors detected: {healthReport.SystemErrorSummary.CriticalErrorCountLast24Hours} in last 24h.");
-                 if (healthReport.AutomatedTaskStatuses != null)
-                 {
-                     var failedTasks = healthReport.AutomatedTaskStatuses.Where(t => t.LastRunStatus?.Equals("Failed", StringComparison.OrdinalIgnoreCase) == true).ToList();
-                     if (failedTasks.Any()) issues.Add($"Failed automated tasks: {string.Join(", ", failedTasks.Select(t => t.TaskName))}.");
-                 }
+                string description = $"Overall system health status: {healthReport.SystemStatus}.";
+                if (healthReport.SystemStatus != SystemHealthStatus.Healthy && !string.IsNullOrEmpty(healthReport.SystemErrorSummary?.ToString()))
+                {
+                    // Assuming SystemErrorSummaryDto has a meaningful ToString() or specific properties
+                    description += $" Issues: {healthReport.SystemErrorSummary}";
+                }
 
-                 if (issues.Any())
-                 {
-                     description += $" Issues: {string.Join("; ", issues)}";
-                 }
+
+                _logger.LogInformation("DicomSystemHealthCheck completed with status: {Status}", healthStatus);
+                return new HealthCheckResult(healthStatus, description, data: data);
             }
-
-            _logger.LogDebug($"DicomSystemHealthCheck result: {status}, Description: {description}");
-
-            // Return the HealthCheckResult
-            return new HealthCheckResult(
-                status,
-                description: description,
-                data: data); // Include the detailed data
+            catch (OperationCanceledException ex)
+            {
+                _logger.LogWarning(ex, "DicomSystemHealthCheck was canceled.");
+                return HealthCheckResult.Unhealthy("Health check was canceled.", ex, GetExceptionData(ex));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An error occurred while performing DicomSystemHealthCheck.");
+                return HealthCheckResult.Unhealthy("An unexpected error occurred during health check.", ex, GetExceptionData(ex));
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        
+        private static IReadOnlyDictionary<string, object> GetExceptionData(Exception ex)
         {
-            _logger.LogWarning("DicomSystemHealthCheck was cancelled.");
-            return new HealthCheckResult(HealthStatus.Unhealthy, "Health check was cancelled.", null,
-                new Dictionary<string, object> { { "Cancellation", "Operation was cancelled by token." } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An error occurred while running the DicomSystemHealthCheck.");
-            // If the monitoring system itself fails, report Unhealthy
-            return new HealthCheckResult(
-                HealthStatus.Unhealthy,
-                "Monitoring system failed to collect health data.",
-                exception: ex, // Include the exception details
-                data: null);
+            return new Dictionary<string, object>
+            {
+                { "ExceptionType", ex.GetType().FullName ?? "Unknown" },
+                { "ExceptionMessage", ex.Message },
+                { "StackTrace", ex.StackTrace ?? "N/A" }
+            };
         }
     }
 }
