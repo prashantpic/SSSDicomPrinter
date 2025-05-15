@@ -1,20 +1,19 @@
-namespace TheSSS.DICOMViewer.Domain.Validation.Measurements;
 using FluentValidation;
 using TheSSS.DICOMViewer.Domain.ValueObjects.Measurements;
+
+namespace TheSSS.DICOMViewer.Domain.Validation.Measurements;
 
 public class MeasurementValueValidator : AbstractValidator<MeasurementValue>
 {
     public MeasurementValueValidator()
     {
-        RuleFor(x => x.Unit)
-            .IsInEnum()
-            .WithMessage("Invalid measurement unit");
+        RuleFor(mv => mv.Unit)
+            .IsInEnum().WithMessage("Invalid measurement unit");
 
-        When(x => x.Unit == MeasurementUnit.Millimeters || x.Unit == MeasurementUnit.SquareMillimeters, () => 
+        When(mv => mv.Unit == MeasurementUnit.Millimeters || mv.Unit == MeasurementUnit.SquareMillimeters, () => 
         {
-            RuleFor(x => x.Value)
-                .GreaterThanOrEqualTo(0)
-                .WithMessage("Measurement value must be non-negative");
+            RuleFor(mv => mv.Value)
+                .GreaterThanOrEqualTo(0).WithMessage("Measurement value cannot be negative");
         });
     }
 }

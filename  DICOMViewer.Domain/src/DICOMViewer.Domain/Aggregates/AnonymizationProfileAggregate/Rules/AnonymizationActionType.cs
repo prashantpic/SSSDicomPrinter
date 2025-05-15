@@ -1,4 +1,5 @@
 namespace TheSSS.DICOMViewer.Domain.Aggregates.AnonymizationProfileAggregate.Rules;
+
 public enum AnonymizationActionType
 {
     Remove,
