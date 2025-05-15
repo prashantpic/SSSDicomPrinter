@@ -1,114 +1,142 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TheSSS.DICOMViewer.Monitoring.Configuration;
-using TheSSS.DICOMViewer.Monitoring.Contracts; // Assuming HealthReportDto is here
-// Assuming AlertEvaluationService and HealthAggregationService interfaces/classes are defined elsewhere
-// and will be available through DI. For now, we'll assume their existence.
+using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
 
-namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers
+namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers;
+
+public class SystemHealthMonitorWorker : BackgroundService
 {
-    /// <summary>
-    /// Background worker service that periodically triggers health data collection,
-    /// aggregation, and alert evaluation.
-    /// It drives the continuous monitoring cycle of the system's health.
-    /// </summary>
-    public class SystemHealthMonitorWorker : BackgroundService
+    private readonly ILoggerAdapter<SystemHealthMonitorWorker> _logger;
+    private readonly MonitoringOptions _monitoringOptions;
+    private readonly HealthAggregationService _healthAggregationService;
+    private readonly AlertEvaluationService _alertEvaluationService;
+    private readonly IAuditLoggingAdapter _auditLoggingAdapter;
+
+    public SystemHealthMonitorWorker(
+        ILoggerAdapter<SystemHealthMonitorWorker> logger,
+        IOptions<MonitoringOptions> monitoringOptions,
+        HealthAggregationService healthAggregationService,
+        AlertEvaluationService alertEvaluationService,
+        IAuditLoggingAdapter auditLoggingAdapter)
     {
-        private readonly ILogger<SystemHealthMonitorWorker> _logger;
-        private readonly MonitoringOptions _monitoringOptions;
-        private readonly HealthAggregationService _healthAggregationService; // Assuming this concrete type or an interface
-        private readonly AlertEvaluationService _alertEvaluationService; // Assuming this concrete type or an interface
+        _logger = logger;
+        _monitoringOptions = monitoringOptions.Value;
+        _healthAggregationService = healthAggregationService;
+        _alertEvaluationService = alertEvaluationService;
+        _auditLoggingAdapter = auditLoggingAdapter;
+    }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="SystemHealthMonitorWorker"/> class.
-        /// </summary>
-        /// <param name="logger">The logger.</param>
-        /// <param name="monitoringOptions">Monitoring configuration options.</param>
-        /// <param name="healthAggregationService">Service for aggregating health data.</param>
-        /// <param name="alertEvaluationService">Service for evaluating health reports and triggering alerts.</param>
-        public SystemHealthMonitorWorker(
-            ILogger<SystemHealthMonitorWorker> logger,
-            IOptions<MonitoringOptions> monitoringOptions,
-            HealthAggregationService healthAggregationService, // To be replaced by IHealthAggregationService if defined
-            AlertEvaluationService alertEvaluationService)    // To be replaced by IAlertEvaluationService if defined
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _logger.Info("SystemHealthMonitorWorker started.");
+        await _auditLoggingAdapter.LogAuditEventAsync(
+            eventType: "MonitoringWorker",
+            eventDetails: "SystemHealthMonitorWorker starting.",
+            outcome: "Success",
+            sourceComponent: nameof(SystemHealthMonitorWorker));
+
+        // Delay startup slightly to allow other services to initialize, if necessary
+        // This can be configurable or removed if not needed.
+        try
         {
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _monitoringOptions = monitoringOptions?.Value ?? throw new ArgumentNullException(nameof(monitoringOptions));
-            _healthAggregationService = healthAggregationService ?? throw new ArgumentNullException(nameof(healthAggregationService));
-            _alertEvaluationService = alertEvaluationService ?? throw new ArgumentNullException(nameof(alertEvaluationService));
-
-            if (_monitoringOptions.SystemHealthCheckInterval <= TimeSpan.Zero)
-            {
-                throw new ArgumentOutOfRangeException(nameof(monitoringOptions), "SystemHealthCheckInterval must be a positive TimeSpan.");
-            }
+            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken); 
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+             _logger.Info("SystemHealthMonitorWorker stopping during initial delay.");
+            await LogStopAsync();
+            return;
         }
 
-        /// <summary>
-        /// This method is called when the <see cref="IHostedService"/> starts.
-        /// The implementation should return a task that represents the lifetime of the long
-        /// running operation(s) being performed.
-        /// </summary>
-        /// <param name="stoppingToken">Triggered when <see cref="IHostedService.StopAsync(CancellationToken)"/> is called.</param>
-        /// <returns>A <see cref="Task"/> that represents the long running operations.</returns>
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+
+        while (!stoppingToken.IsCancellationRequested)
         {
-            _logger.LogInformation("SystemHealthMonitorWorker started.");
-
-            while (!stoppingToken.IsCancellationRequested)
+            if (!_monitoringOptions.IsMonitoringEnabled)
             {
+                _logger.Info("System monitoring is disabled. Worker is sleeping.");
                 try
                 {
-                    if (!_monitoringOptions.IsMonitoringEnabled)
-                    {
-                        _logger.LogTrace("System monitoring is disabled. Skipping health check cycle.");
-                        await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); // Check periodically if it's re-enabled
-                        continue;
-                    }
-
-                    _logger.LogInformation("Starting system health check cycle at {Timestamp}.", DateTimeOffset.UtcNow);
-
-                    HealthReportDto healthReport = await _healthAggregationService.AggregateHealthAsync(stoppingToken);
-                    _logger.LogInformation("Health aggregation completed. Overall system status: {SystemStatus}", healthReport.SystemStatus);
-
-                    // Pass the aggregated health report to the alert evaluation service
-                    await _alertEvaluationService.EvaluateHealthReportAsync(healthReport, stoppingToken);
-
-                    _logger.LogInformation("System health check cycle completed at {Timestamp}.", DateTimeOffset.UtcNow);
+                    await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); // Sleep longer if disabled
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
-                    // This is expected if stoppingToken is cancelled during an operation or delay.
-                    _logger.LogInformation("SystemHealthMonitorWorker stopping due to cancellation request.");
-                    break; // Exit the loop if cancellation is requested
+                    break; // Exit loop if cancellation requested during delay
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "An unexpected error occurred during the health check cycle.");
-                    // Depending on the severity, we might want to alert on this critical failure separately
-                    // or implement a more resilient retry mechanism for the worker itself.
-                }
-
-                try
-                {
-                    // Wait for the configured interval before the next cycle
-                    if (!stoppingToken.IsCancellationRequested)
-                    {
-                         _logger.LogTrace("Waiting for {Interval} before next health check cycle.", _monitoringOptions.SystemHealthCheckInterval);
-                        await Task.Delay(_monitoringOptions.SystemHealthCheckInterval, stoppingToken);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    _logger.LogInformation("SystemHealthMonitorWorker delay was canceled. Worker is stopping.");
-                    break; // Exit the loop if cancellation is requested during delay
-                }
+                continue;
             }
 
-            _logger.LogInformation("SystemHealthMonitorWorker stopped.");
+            try
+            {
+                _logger.Info("Performing system health check cycle.");
+                await _auditLoggingAdapter.LogAuditEventAsync(
+                    eventType: "MonitoringCycle",
+                    eventDetails: "Starting new health check cycle.",
+                    outcome: "Initiated",
+                    sourceComponent: nameof(SystemHealthMonitorWorker));
+
+                // 1. Aggregate Health Data
+                var healthReport = await _healthAggregationService.AggregateHealthDataAsync(stoppingToken);
+                _logger.Info($"Health aggregation completed. Overall status: {healthReport.OverallStatus}");
+                // Optional: Log more details from the report if needed, e.g., specific component statuses
+
+                // 2. Evaluate Alerts based on Health Report
+                await _alertEvaluationService.EvaluateHealthReportAsync(healthReport, stoppingToken);
+                _logger.Info("Alert evaluation cycle completed.");
+
+                 await _auditLoggingAdapter.LogAuditEventAsync(
+                    eventType: "MonitoringCycle",
+                    eventDetails: $"Health check cycle completed. Overall status: {healthReport.OverallStatus}",
+                    outcome: "Success",
+                    sourceComponent: nameof(SystemHealthMonitorWorker));
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                // Expected exception when the service is stopping
+                _logger.Info("SystemHealthMonitorWorker ExecuteAsync loop is stopping due to cancellation request.");
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "An error occurred during the system health monitoring cycle.");
+                await _auditLoggingAdapter.LogAuditEventAsync(
+                    eventType: "MonitoringCycle",
+                    eventDetails: $"Error during health check cycle: {ex.Message}",
+                    outcome: "Failure",
+                    sourceComponent: nameof(SystemHealthMonitorWorker));
+                // Depending on the severity of errors here, we might want a shorter delay before retrying
+                // or a specific backoff strategy. For now, uses the standard interval.
+            }
+
+            // Wait for the next interval
+            _logger.Info($"Health check cycle finished. Waiting for {_monitoringOptions.SystemHealthCheckInterval.TotalSeconds} seconds.");
+            try
+            {
+                await Task.Delay(_monitoringOptions.SystemHealthCheckInterval, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                 _logger.Info("SystemHealthMonitorWorker stopping during delay.");
+                break; // Exit loop if cancellation requested during delay
+            }
         }
+        await LogStopAsync();
+    }
+
+    private async Task LogStopAsync()
+    {
+        _logger.Info("SystemHealthMonitorWorker stopped.");
+        await _auditLoggingAdapter.LogAuditEventAsync(
+            eventType: "MonitoringWorker",
+            eventDetails: "SystemHealthMonitorWorker stopping.",
+            outcome: "Success",
+            sourceComponent: nameof(SystemHealthMonitorWorker));
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.Info("SystemHealthMonitorWorker StopAsync called.");
+        // Perform any cleanup tasks here if necessary
+        await base.StopAsync(cancellationToken);
     }
 }
