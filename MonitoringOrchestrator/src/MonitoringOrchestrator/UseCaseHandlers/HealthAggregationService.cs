@@ -1,13 +1,15 @@
+namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers;
+
 using TheSSS.DICOMViewer.Monitoring.Interfaces;
 using TheSSS.DICOMViewer.Monitoring.Contracts;
+using TheSSS.DICOMViewer.Monitoring.Mappers;
 using TheSSS.DICOMViewer.Monitoring.Exceptions;
 using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-
-namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers;
+using System;
 
 public class HealthAggregationService
 {
@@ -18,76 +20,110 @@ public class HealthAggregationService
         IEnumerable<IHealthDataSource> dataSources,
         ILogger<HealthAggregationService> logger)
     {
-        _dataSources = dataSources;
-        _logger = logger;
+        _dataSources = dataSources ?? throw new ArgumentNullException(nameof(dataSources));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public async Task<HealthReportDto> AggregateHealthAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Collects health data from all registered data sources and aggregates it into a HealthReportDto.
+    /// </summary>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>A task that represents the asynchronous operation, returning the aggregated HealthReportDto.</returns>
+    public async Task<HealthReportDto> AggregateHealthDataAsync(CancellationToken cancellationToken)
     {
+        _logger.LogInformation("Starting health data aggregation.");
+
         var report = new HealthReportDto
         {
             Timestamp = DateTime.UtcNow,
-            OverallStatus = OverallHealthStatus.Unknown
+            PacsConnections = new List<PacsConnectionInfoDto>(),
+            AutomatedTaskStatuses = new List<AutomatedTaskStatusInfoDto>()
         };
 
         var tasks = _dataSources.Select(source => CollectDataSourceDataAsync(source, cancellationToken)).ToList();
+        
+        // Using Task.WhenAll to run data collection concurrently
         var results = await Task.WhenAll(tasks);
 
+        // Process results and populate the report DTO
         foreach (var result in results)
         {
-            if (result.Success)
+            if (result.Success && result.Data != null)
             {
                 switch (result.Data)
                 {
-                    case StorageHealthInfoDto storage:
-                        report.StorageHealth = storage;
+                    case StorageHealthInfoDto storageHealth:
+                        report.StorageHealth = storageHealth;
+                        _logger.LogDebug("Aggregated StorageHealth data.");
                         break;
-                    case DatabaseConnectivityInfoDto db:
-                        report.DatabaseHealth = db;
+                    case DatabaseConnectivityInfoDto databaseHealth:
+                        report.DatabaseHealth = databaseHealth;
+                        _logger.LogDebug("Aggregated DatabaseHealth data.");
                         break;
-                    case IEnumerable<PacsConnectionInfoDto> pacs:
-                        report.PacsConnections = pacs.ToList();
+                    case IEnumerable<PacsConnectionInfoDto> pacsConnections:
+                        report.PacsConnections = pacsConnections;
+                        _logger.LogDebug($"Aggregated {pacsConnections.Count()} PACSConnectionInfo data points.");
                         break;
-                    case LicenseStatusInfoDto license:
-                        report.LicenseStatus = license;
+                    case PacsConnectionInfoDto singlePacsConnection: // If a source returns a single Pacs item
+                        ((List<PacsConnectionInfoDto>)report.PacsConnections!).Add(singlePacsConnection);
+                         _logger.LogDebug($"Aggregated single PACSConnectionInfo data for {singlePacsConnection.PacsNodeId}.");
                         break;
-                    case SystemErrorInfoSummaryDto errors:
-                        report.SystemErrorSummary = errors;
+                    case LicenseStatusInfoDto licenseStatus:
+                        report.LicenseStatus = licenseStatus;
+                        _logger.LogDebug("Aggregated LicenseStatus data.");
                         break;
-                    case IEnumerable<AutomatedTaskStatusInfoDto> tasks:
-                        report.AutomatedTaskStatuses = tasks.ToList();
+                    case SystemErrorInfoSummaryDto systemErrorSummary:
+                        report.SystemErrorSummary = systemErrorSummary;
+                        _logger.LogDebug("Aggregated SystemErrorSummary data.");
+                        break;
+                    case IEnumerable<AutomatedTaskStatusInfoDto> taskStatuses:
+                        report.AutomatedTaskStatuses = taskStatuses;
+                        _logger.LogDebug($"Aggregated {taskStatuses.Count()} AutomatedTaskStatusInfo data points.");
+                        break;
+                    case AutomatedTaskStatusInfoDto singleTaskStatus: // If a source returns a single Task item
+                        ((List<AutomatedTaskStatusInfoDto>)report.AutomatedTaskStatuses!).Add(singleTaskStatus);
+                        _logger.LogDebug($"Aggregated single AutomatedTaskStatusInfo data for {singleTaskStatus.TaskName}.");
+                        break;
+                    default:
+                        _logger.LogWarning($"Aggregator received data from source '{result.DataSourceName}' of unhandled type: {result.Data.GetType().FullName}");
                         break;
                 }
             }
+            else if (!result.Success)
+            {
+                _logger.LogWarning($"Data collection failed for source '{result.DataSourceName}'. Error: {result.Error?.Message}");
+                // Optionally, add specific error indicators to the HealthReportDto for failed sources
+            }
         }
 
-        report.OverallStatus = DetermineOverallStatus(report);
+        // Determine overall status based on collected data
+        report.OverallStatus = HealthReportMapper.DetermineOverallStatus(report);
+
+        _logger.LogInformation($"Health data aggregation finished. Overall status: {report.OverallStatus}");
+
         return report;
     }
 
-    private async Task<(bool Success, object? Data, string SourceName)> CollectDataSourceDataAsync(
-        IHealthDataSource source, CancellationToken cancellationToken)
+    private async Task<(string DataSourceName, bool Success, object? Data, Exception? Error)> CollectDataSourceDataAsync(
+        IHealthDataSource source,
+        CancellationToken cancellationToken)
     {
         try
         {
+            _logger.LogDebug($"Collecting data from source: {source.Name}");
             var data = await source.GetHealthDataAsync(cancellationToken);
-            return (true, data, source.Name);
+            _logger.LogDebug($"Successfully collected data from source: {source.Name}");
+            return (source.Name, true, data, null);
         }
-        catch (DataSourceUnavailableException ex)
+        catch (DataSourceUnavailableException dsuEx)
         {
-            _logger.LogWarning(ex, "Data source {DataSource} unavailable", source.Name);
-            return (false, null, source.Name);
+            _logger.LogError(dsuEx, $"Data source '{source.Name}' is unavailable.");
+            return (source.Name, false, null, dsuEx);
         }
-    }
-
-    private static OverallHealthStatus DetermineOverallStatus(HealthReportDto report)
-    {
-        if (report.DatabaseHealth?.IsConnected == false) return OverallHealthStatus.Error;
-        if (report.LicenseStatus?.IsValid == false) return OverallHealthStatus.Error;
-        if (report.StorageHealth?.UsedPercentage > 90) return OverallHealthStatus.Warning;
-        if (report.PacsConnections?.Any(p => !p.IsConnected) == true) return OverallHealthStatus.Warning;
-        if (report.SystemErrorSummary?.CriticalErrorCountLast24Hours > 0) return OverallHealthStatus.Critical;
-        
-        return OverallHealthStatus.Healthy;
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"An unexpected error occurred while collecting data from source '{source.Name}'.");
+            return (source.Name, false, null, ex);
+        }
     }
 }
