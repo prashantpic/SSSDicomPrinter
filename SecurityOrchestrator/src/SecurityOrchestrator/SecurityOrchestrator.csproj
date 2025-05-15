@@ -2,27 +2,27 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
     <RootNamespace>TheSSS.DICOMViewer.Security</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.9.0" />
-    <PackageReference Include="OAuth2.Client" Version="2.2.0" />
-    <!-- Added as per specific instruction in CodeFileDefinition.ThirdPartyLibraries for "Windows.Security.Cryptography". -->
-    <!-- This package provides contracts for WinRT APIs. Actual usage of such APIs (e.g., DPAPI) -->
-    <!-- is expected to be abstracted via ISensitiveDataProtector in the Infrastructure layer. -->
-    <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.22621.3233" />
+    <!-- 
+      The SDS specified "OAuth2". "OAuth2.Client" is one such package.
+      This dependency might be more appropriate for an IIdentityProviderService implementation
+      rather than the orchestrator itself, but included as per explicit .csproj instruction.
+    -->
+    <PackageReference Include="OAuth2.Client" Version="2.1.0" /> 
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Project references assuming a directory structure like: -->
-    <!-- solution_root/src/SecurityOrchestrator/SecurityOrchestrator.csproj (this file) -->
-    <!-- solution_root/src/REPO-APP-SERVICES/REPO-APP-SERVICES.csproj -->
-    <!-- solution_root/src/REPO-CROSS-CUTTING/REPO-CROSS-CUTTING.csproj -->
-    <!-- solution_root/src/REPO-INFRA/REPO-INFRA.csproj -->
-    <!-- Paths are relative from this project file's directory. -->
+    <!-- 
+      Project references to other repositories.
+      Actual paths will depend on the solution structure.
+      Example: ..\REPO-APP-SERVICES\TheSSS.DICOMViewer.ApplicationServices.csproj
+    -->
     <ProjectReference Include="..\REPO-APP-SERVICES\REPO-APP-SERVICES.csproj" />
     <ProjectReference Include="..\REPO-CROSS-CUTTING\REPO-CROSS-CUTTING.csproj" />
     <ProjectReference Include="..\REPO-INFRA\REPO-INFRA.csproj" />
