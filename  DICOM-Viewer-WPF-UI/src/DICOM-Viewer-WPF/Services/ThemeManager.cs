@@ -1,4 +1,5 @@
 using System.Windows;
+using TheSSS.DicomViewer.Presentation.Properties;
 
 namespace TheSSS.DicomViewer.Presentation.Services
 {
@@ -13,5 +14,21 @@ namespace TheSSS.DicomViewer.Presentation.Services
 
             var resources = Application.Current.Resources;
             resources.MergedDictionaries.Clear();
+            
+            resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = themeName switch
+                {
+                    "Dark" => new System.Uri("/TheSSS.DicomViewer.Presentation;component/Resources/Themes/DarkTheme.xaml", 
+                        System.UriKind.Relative),
+                    _ => new System.Uri("/TheSSS.DicomViewer.Presentation;component/Resources/Themes/LightTheme.xaml", 
+                        System.UriKind.Relative)
+                }
+            });
 
-            var themeUri =
+            _currentTheme = themeName;
+        }
+
+        public string GetCurrentTheme() => _currentTheme;
+    }
+}

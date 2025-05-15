@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using SkiaSharp;
 using TheSSS.DicomViewer.Presentation.Rendering;
 
@@ -9,16 +10,13 @@ namespace TheSSS.DicomViewer.Presentation.ViewModels
         private readonly IRenderer<SKCanvas, DicomImageViewModel, SKRect> _renderer;
 
         [ObservableProperty]
-        private byte[]? _pixelData;
+        private byte[] _pixelData;
 
         [ObservableProperty]
         private int _imageWidth;
 
         [ObservableProperty]
         private int _imageHeight;
-
-        [ObservableProperty]
-        private string? _photometricInterpretation;
 
         [ObservableProperty]
         private double _windowWidth = 400;
@@ -44,8 +42,17 @@ namespace TheSSS.DicomViewer.Presentation.ViewModels
 
         public void UpdatePanZoom(Point panDelta, double zoomDelta)
         {
-            PanOffset = new Point(PanOffset.X + panDelta.X, PanOffset.Y + panDelta.Y);
-            Zoom = Math.Clamp(Zoom + zoomDelta, 0.1, 5.0);
+            Zoom *= zoomDelta;
+            PanOffset = new Point(
+                PanOffset.X + panDelta.X / Zoom,
+                PanOffset.Y + panDelta.Y / Zoom
+            );
+        }
+
+        [RelayCommand]
+        private async Task LoadImageAsync(string instanceUid)
+        {
+            // Implementation would call application layer service
         }
     }
 }

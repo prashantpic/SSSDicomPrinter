@@ -1,7 +1,7 @@
 namespace TheSSS.DicomViewer.Presentation.Rendering
 {
-    public interface IRenderer<in TCanvasContext, in TDataSource, in TRenderParameters>
+    public interface IRenderer<in TCanvas, in TDataSource, in TRenderParams>
     {
-        void Render(TCanvasContext canvasContext, TDataSource dataSource, TRenderParameters renderParameters);
+        void Render(TCanvas canvas, TDataSource dataSource, TRenderParams renderParams);
     }
 }

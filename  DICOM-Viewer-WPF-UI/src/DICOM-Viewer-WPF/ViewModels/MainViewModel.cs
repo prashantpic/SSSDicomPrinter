@@ -2,20 +2,21 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using TheSSS.DicomViewer.Presentation.Services;
+using TheSSS.DicomViewer.Presentation.ViewModels.Tabs;
 
 namespace TheSSS.DicomViewer.Presentation.ViewModels
 {
     public partial class MainViewModel : ObservableObject
     {
+        [ObservableProperty]
+        private object _selectedTabViewModel;
+
+        public ObservableCollection<object> TabViewModels { get; } = new();
+
         private readonly INavigationService _navigationService;
 
-        [ObservableProperty]
-        private ObservableCollection<object> _tabViewModels = new();
-
-        [ObservableProperty]
-        private object? _selectedTabViewModel;
-
-        public MainViewModel(INavigationService navigationService,
+        public MainViewModel(
+            INavigationService navigationService,
             IncomingPrintQueueTabViewModel incomingPrintQueueTabViewModel,
             LocalStorageTabViewModel localStorageTabViewModel,
             QueryRetrieveTabViewModel queryRetrieveTabViewModel)
@@ -26,7 +27,7 @@ namespace TheSSS.DicomViewer.Presentation.ViewModels
             TabViewModels.Add(localStorageTabViewModel);
             TabViewModels.Add(queryRetrieveTabViewModel);
             
-            SelectedTabViewModel = TabViewModels.FirstOrDefault();
+            SelectedTabViewModel = TabViewModels[0];
         }
 
         [RelayCommand]

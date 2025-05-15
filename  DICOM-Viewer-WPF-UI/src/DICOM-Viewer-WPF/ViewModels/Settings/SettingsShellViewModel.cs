@@ -6,19 +6,8 @@ namespace TheSSS.DicomViewer.Presentation.ViewModels.Settings
     public partial class SettingsShellViewModel : ObservableObject
     {
         [ObservableProperty]
-        private ObservableCollection<object> _panelNavigationItems = new();
+        private object _currentPanelViewModel;
 
-        [ObservableProperty]
-        private object? _currentPanelViewModel;
-
-        public SettingsShellViewModel()
-        {
-            InitializeNavigationItems();
-        }
-
-        private void InitializeNavigationItems()
-        {
-            // TODO: Implement navigation items
-        }
+        public ObservableCollection<object> PanelNavigationItems { get; } = new();
     }
 }

@@ -5,38 +5,30 @@ namespace TheSSS.DicomViewer.Presentation.Rendering
 {
     public class DicomPixelDataRenderer : IRenderer<SKCanvas, DicomImageViewModel, SKRect>
     {
-        public void Render(SKCanvas canvas, DicomImageViewModel dataSource, SKRect renderParameters)
+        public void Render(SKCanvas canvas, DicomImageViewModel imageViewModel, SKRect destinationRect)
         {
-            if (dataSource.PixelData == null) return;
+            if (imageViewModel.PixelData == null) return;
 
-            using var bitmap = new SKBitmap(dataSource.ImageWidth, dataSource.ImageHeight);
-            bitmap.Pixels = ConvertPixelData(dataSource.PixelData, dataSource.WindowWidth, dataSource.WindowLevel);
+            using var bitmap = new SKBitmap(imageViewModel.ImageWidth, imageViewModel.ImageHeight);
+            bitmap.Pixels = ConvertPixelData(imageViewModel);
             
             canvas.Save();
-            canvas.Translate((float)dataSource.PanOffset.X, (float)dataSource.PanOffset.Y);
-            canvas.Scale((float)dataSource.Zoom);
-            canvas.DrawBitmap(bitmap, renderParameters);
+            canvas.Translate((float)imageViewModel.PanOffset.X, (float)imageViewModel.PanOffset.Y);
+            canvas.Scale((float)imageViewModel.Zoom);
+            canvas.DrawBitmap(bitmap, destinationRect);
             canvas.Restore();
         }
 
-        private static SKColor[] ConvertPixelData(byte[] pixelData, double ww, double wl)
+        private SKColor[] ConvertPixelData(DicomImageViewModel viewModel)
         {
-            // Simplified pixel conversion - actual implementation would handle DICOM specifics
-            var colors = new SKColor[pixelData.Length];
-            for (int i = 0; i < pixelData.Length; i++)
+            // Simplified conversion - actual implementation would handle DICOM specifics
+            var pixels = new SKColor[viewModel.ImageWidth * viewModel.ImageHeight];
+            for (int i = 0; i < pixels.Length; i++)
             {
-                byte value = ApplyWindowLevel(pixelData[i], ww, wl);
-                colors[i] = new SKColor(value, value, value);
+                byte value = viewModel.PixelData[i % viewModel.PixelData.Length];
+                pixels[i] = new SKColor(value, value, value);
             }
-            return colors;
-        }
-
-        private static byte ApplyWindowLevel(byte pixelValue, double ww, double wl)
-        {
-            double min = wl - ww / 2;
-            double max = wl + ww / 2;
-            double normalized = (pixelValue - min) / (max - min);
-            return (byte)Math.Clamp(normalized * 255, 0, 255);
+            return pixels;
         }
     }
 }

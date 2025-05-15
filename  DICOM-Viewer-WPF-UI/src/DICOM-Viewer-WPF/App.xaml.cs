@@ -8,25 +8,19 @@ namespace TheSSS.DicomViewer.Presentation
 {
     public partial class App : Application
     {
-        private IServiceProvider? _serviceProvider;
+        private readonly ServiceProvider _serviceProvider;
 
-        protected override void OnStartup(StartupEventArgs e)
+        public App()
         {
-            base.OnStartup(e);
-            
             var services = new ServiceCollection();
             ConfigureServices(services);
-            
             _serviceProvider = services.BuildServiceProvider();
-            var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
-            mainWindow.Show();
         }
 
         private void ConfigureServices(IServiceCollection services)
         {
             services.AddSingleton<MainWindow>();
             services.AddSingleton<MainViewModel>();
-            
             services.AddSingleton<INavigationService, NavigationService>();
             services.AddSingleton<IThemeManager, ThemeManager>();
             
@@ -39,11 +33,14 @@ namespace TheSSS.DicomViewer.Presentation
             services.AddTransient<ThumbnailViewModel>();
             
             services.AddSingleton<IRenderer<SKCanvas, DicomImageViewModel, SKRect>, DicomPixelDataRenderer>();
-            
-            services.AddTransient<SettingsShellViewModel>();
-            services.AddTransient<DisplaySettingsPanelViewModel>();
-            
-            services.AddSingleton<BooleanToVisibilityConverter>();
+        }
+
+        protected override void OnStartup(StartupEventArgs e)
+        {
+            base.OnStartup(e);
+            var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
+            mainWindow.DataContext = _serviceProvider.GetRequiredService<MainViewModel>();
+            mainWindow.Show();
         }
     }
 }
