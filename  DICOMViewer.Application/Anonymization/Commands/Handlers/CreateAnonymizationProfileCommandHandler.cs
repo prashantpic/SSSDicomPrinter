@@ -1,44 +1,41 @@
 using MediatR;
+using TheSSS.DICOMViewer.Application.Anonymization.DTOs;
+using TheSSS.DICOMViewer.Infrastructure.Interfaces;
 using System.Threading;
 using System.Threading.Tasks;
-using TheSSS.DICOMViewer.Application.Anonymization.Commands;
-using TheSSS.DICOMViewer.Application.Anonymization.DTOs;
-using TheSSS.DICOMViewer.Application.Interfaces.Infrastructure;
 
-namespace TheSSS.DICOMViewer.Application.Anonymization.Commands.Handlers;
-
-public class CreateAnonymizationProfileCommandHandler : IRequestHandler<CreateAnonymizationProfileCommand, AnonymizationProfileDto>
+namespace TheSSS.DICOMViewer.Application.Anonymization.Commands.Handlers
 {
-    private readonly ISettingsRepositoryAdapter _settingsRepository;
-    private readonly IAuditLogRepositoryAdapter _auditLogger;
-
-    public CreateAnonymizationProfileCommandHandler(
-        ISettingsRepositoryAdapter settingsRepository,
-        IAuditLogRepositoryAdapter auditLogger)
+    public class CreateAnonymizationProfileCommandHandler : IRequestHandler<CreateAnonymizationProfileCommand, AnonymizationProfileDto>
     {
-        _settingsRepository = settingsRepository;
-        _auditLogger = auditLogger;
-    }
+        private readonly ISettingsRepositoryAdapter _settingsRepository;
+        private readonly IAuditLogRepositoryAdapter _auditLog;
 
-    public async Task<AnonymizationProfileDto> Handle(CreateAnonymizationProfileCommand request, CancellationToken cancellationToken)
-    {
-        var profile = new AnonymizationProfileDto
+        public CreateAnonymizationProfileCommandHandler(
+            ISettingsRepositoryAdapter settingsRepository,
+            IAuditLogRepositoryAdapter auditLog)
         {
-            ProfileId = Guid.NewGuid().ToString(),
-            ProfileName = request.ProfileName,
-            ProfileDescription = request.ProfileDescription,
-            MetadataRules = request.MetadataRules,
-            PredefinedRuleSetName = request.PredefinedRuleSetName,
-            PixelAnonymizationTemplateId = request.PixelAnonymizationTemplateId,
-            IsReadOnly = request.IsReadOnly
-        };
+            _settingsRepository = settingsRepository;
+            _auditLog = auditLog;
+        }
 
-        var createdProfile = await _settingsRepository.CreateAnonymizationProfileAsync(profile);
-        
-        await _auditLogger.LogEventAsync("PROFILE_CREATED", 
-            $"Created profile: {createdProfile.ProfileName} ({createdProfile.ProfileId})", 
-            "SUCCESS");
+        public async Task<AnonymizationProfileDto> Handle(CreateAnonymizationProfileCommand request, CancellationToken cancellationToken)
+        {
+            var profileDto = new AnonymizationProfileDto(
+                0,
+                request.ProfileName,
+                request.ProfileDescription,
+                request.MetadataRules,
+                request.PixelAnonymizationTemplateId,
+                false);
 
-        return createdProfile;
+            var createdProfile = await _settingsRepository.CreateAnonymizationProfileAsync(profileDto);
+
+            await _auditLog.LogEventAsync("ProfileCreated", 
+                $"Created anonymization profile: {createdProfile.ProfileName} (ID: {createdProfile.ProfileId})",
+                "Success");
+
+            return createdProfile;
+        }
     }
 }
