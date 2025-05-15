@@ -1,46 +1,65 @@
-using System;
+using System.Collections.Generic;
 
-namespace TheSSS.DICOMViewer.Integration.Configuration
+namespace TheSSS.DICOMViewer.Integration.Configuration;
+
+/// <summary>
+/// Root configuration class for the Service Integration Gateway.
+/// Aggregates specific settings for Odoo, SMTP, Print, DICOM, Resilience, Rate Limiting, and Credentials.
+/// </summary>
+public class ServiceGatewaySettings
 {
     /// <summary>
-    /// Root configuration class for the Service Integration Gateway, aggregating specific settings
-    /// for Odoo, SMTP, Print, DICOM, Resilience, Rate Limiting, and Credentials.
+    /// Gets or sets the configuration settings for the Odoo API integration.
     /// </summary>
-    public class ServiceGatewaySettings
-    {
-        /// <summary>
-        /// Settings specific to the Odoo Licensing API integration.
-        /// </summary>
-        public OdooApiSettings OdooApi { get; set; } = new OdooApiSettings();
+    public OdooApiSettings OdooApi { get; set; } = new();
 
-        /// <summary>
-        /// Settings specific to the SMTP email service integration.
-        /// </summary>
-        public SmtpSettings Smtp { get; set; } = new SmtpSettings();
+    /// <summary>
+    /// Gets or sets the configuration settings for the SMTP service integration.
+    /// </summary>
+    public SmtpSettings Smtp { get; set; } = new();
 
-        /// <summary>
-        /// Settings specific to the Windows Print API integration.
-        /// </summary>
-        public WindowsPrintSettings WindowsPrint { get; set; } = new WindowsPrintSettings();
+    /// <summary>
+    /// Gets or sets the configuration settings for the Windows Print API integration.
+    /// </summary>
+    public WindowsPrintSettings WindowsPrint { get; set; } = new();
 
-        /// <summary>
-        /// Settings specific to the DICOM network communications integration.
-        /// </summary>
-        public DicomGatewaySettings Dicom { get; set; } = new DicomGatewaySettings();
+    /// <summary>
+    /// Gets or sets the configuration settings for the DICOM network integration.
+    /// </summary>
+    public DicomGatewaySettings DicomGateway { get; set; } = new();
 
-        /// <summary>
-        /// Settings for resilience policies (Circuit Breaker, Retry, Timeout).
-        /// </summary>
-        public ResilienceSettings Resilience { get; set; } = new ResilienceSettings();
+    /// <summary>
+    /// Gets or sets the configuration settings for resilience policies (e.g., retry, circuit breaker).
+    /// </summary>
+    public ResilienceSettings Resilience { get; set; } = new();
 
-        /// <summary>
-        /// Settings for API rate limiting policies.
-        /// </summary>
-        public RateLimitSettings RateLimiting { get; set; } = new RateLimitSettings();
+    /// <summary>
+    /// Gets or sets the configuration settings for rate limiting.
+    /// </summary>
+    public RateLimitSettings RateLimiting { get; set; } = new();
 
-        /// <summary>
-        /// Settings for the credential management service.
-        /// </summary>
-        public CredentialManagerSettings CredentialManager { get; set; } = new CredentialManagerSettings();
-    }
+    /// <summary>
+    /// Gets or sets the configuration settings for the credential manager.
+    /// </summary>
+    public CredentialManagerSettings CredentialManager { get; set; } = new();
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Odoo integration is enabled.
+    /// </summary>
+    public bool EnableOdooIntegration { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether SMTP integration is enabled.
+    /// </summary>
+    public bool EnableSmtpIntegration { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Windows Print integration is enabled.
+    /// </summary>
+    public bool EnablePrintIntegration { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether DICOM network integration is enabled.
+    /// </summary>
+    public bool EnableDicomIntegration { get; set; } = false;
 }

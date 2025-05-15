@@ -1,52 +1,23 @@
-using System;
-using Dicom; // From fo-dicom-core, assuming it's a shared dependency or available through REPO-INFRA
-using TheSSS.DICOMViewer.Infrastructure.Models; // Assuming DicomAe is here
+using System.Collections.Generic;
+// Using a generic Dictionary for queryDataset as specified in initial SDS (object QueryDataset).
+// Alternatively, if FO-DICOM is a direct dependency, DicomDataset could be used.
+// For loose coupling, Dictionary<string, string> or a custom TagValue pair list is safer.
 
-namespace TheSSS.DICOMViewer.Integration.Models
-{
-    /// <summary>
-    /// Data Transfer Object for DICOM C-FIND requests via the gateway.
-    /// Corresponds to REQ-DNSPI-001.
-    /// </summary>
-    public record DicomCFindRequestDto
-    {
-        /// <summary>
-        /// The target DICOM Application Entity (SCP) to send the C-FIND request to.
-        /// </summary>
-        public DicomAe TargetAe { get; init; }
+namespace TheSSS.DICOMViewer.Integration.Models;
 
-        /// <summary>
-        /// The DICOM Query/Retrieve Level (e.g., "PATIENT", "STUDY", "SERIES", "IMAGE").
-        /// </summary>
-        public string QueryLevel { get; init; }
-
-        /// <summary>
-        /// The DicomDataset containing the query keys and match values.
-        /// Universal (Tag=value) and Range (Tag=value1-value2) matching should be supported by the SCP.
-        /// Wildcard matching (*, ?) for string values.
-        /// </summary>
-        public DicomDataset QueryKeys { get; init; }
-
-        /// <summary>
-        /// Optional: The Calling AE Title for this SCU operation.
-        /// If not provided, a default from DicomGatewaySettings might be used.
-        /// </summary>
-        public string? CallingAeTitle { get; init; }
-
-
-        public DicomCFindRequestDto(DicomAe targetAe, string queryLevel, DicomDataset queryKeys, string? callingAeTitle = null)
-        {
-            if (targetAe == null)
-                throw new ArgumentNullException(nameof(targetAe));
-            if (string.IsNullOrWhiteSpace(queryLevel))
-                throw new ArgumentException("Query level cannot be null or whitespace.", nameof(queryLevel));
-            if (queryKeys == null)
-                throw new ArgumentNullException(nameof(queryKeys));
-
-            TargetAe = targetAe;
-            QueryLevel = queryLevel;
-            QueryKeys = queryKeys;
-            CallingAeTitle = callingAeTitle;
-        }
-    }
-}
+/// <summary>
+/// Data Transfer Object for DICOM C-FIND requests via the gateway.
+/// Specifies the target Application Entity (AE), query level, and query keys.
+/// </summary>
+/// <param name="TargetAe">The target DICOM Application Entity to send the C-FIND request to.</param>
+/// <param name="QueryLevel">The hierarchical level of the query (e.g., "PATIENT", "STUDY", "SERIES", "IMAGE").
+/// Should conform to DICOM standard values for QRLEVEL (0008,0052) if C-FIND-RQ.</param>
+/// <param name="QueryDataset">A collection of DICOM tags and their values to be used as query criteria.
+/// Represented as a dictionary where keys are DICOM tag strings (e.g., "0010,0010" for PatientName)
+/// and values are the corresponding query values. Wildcards may be supported depending on the SCP.</param>
+public record DicomCFindRequestDto(
+    DicomAETarget TargetAe,
+    string QueryLevel,
+    Dictionary<string, string> QueryDataset // Using Dictionary as a representation of DICOM tags/values
+                                            // This aligns with "object QueryDataset" intent for flexibility.
+);

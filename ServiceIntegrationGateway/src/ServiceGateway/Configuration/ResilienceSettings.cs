@@ -1,90 +1,108 @@
 using System;
 using System.Collections.Generic;
 
-namespace TheSSS.DICOMViewer.Integration.Configuration
+namespace TheSSS.DICOMViewer.Integration.Configuration;
+
+/// <summary>
+/// Configuration settings for Polly resilience policies (Circuit Breaker, Retry, Timeout)
+/// applicable to various services, keyed by service type or specific policy identifiers.
+/// </summary>
+public class ResilienceSettings
 {
     /// <summary>
-    /// Configuration settings for Polly resilience policies.
-    /// This allows defining multiple named policies that can be applied to different services.
+    /// Gets or sets a list of named policy configurations.
     /// </summary>
-    public class ResilienceSettings
-    {
-        /// <summary>
-        /// Dictionary of named resilience policy configurations.
-        /// The key is the policy name (e.g., "OdooApiPolicy", "DefaultDicomPolicy").
-        /// </summary>
-        public Dictionary<string, PolicyConfig> Policies { get; set; } = new Dictionary<string, PolicyConfig>();
-    }
+    public List<PolicyConfiguration> Policies { get; set; } = new List<PolicyConfiguration>();
+}
+
+/// <summary>
+/// Defines settings for a specific named resilience policy.
+/// </summary>
+public class PolicyConfiguration
+{
+    /// <summary>
+    /// Gets or sets the unique key for this policy configuration (e.g., "OdooApiPolicy", "DicomNetworkPolicy").
+    /// This key is used to retrieve the policy from the IResiliencePolicyProvider.
+    /// </summary>
+    public string Key { get; set; } = string.Empty;
 
     /// <summary>
-    /// Configuration for a single named Polly policy, which can include Retry, CircuitBreaker, and Timeout settings.
+    /// Gets or sets the settings for the Retry policy component.
     /// </summary>
-    public class PolicyConfig
-    {
-        /// <summary>
-        /// Retry policy configuration. If null, no retry policy is applied for this named policy.
-        /// </summary>
-        public RetryConfig? Retry { get; set; }
-
-        /// <summary>
-        /// Circuit Breaker policy configuration. If null, no circuit breaker is applied.
-        /// </summary>
-        public CircuitBreakerConfig? CircuitBreaker { get; set; }
-
-        /// <summary>
-        /// Timeout policy configuration. If null, no specific timeout policy is applied (rely on underlying client timeout).
-        /// </summary>
-        public TimeoutConfig? Timeout { get; set; }
-    }
+    public RetryPolicySettings Retry { get; set; } = new RetryPolicySettings();
 
     /// <summary>
-    /// Configuration for a Retry policy.
+    /// Gets or sets the settings for the Circuit Breaker policy component.
     /// </summary>
-    public class RetryConfig
-    {
-        /// <summary>
-        /// Number of retry attempts.
-        /// </summary>
-        public int Count { get; set; } = 3;
-
-        /// <summary>
-        /// Base delay for backoff. For exponential backoff, this is the initial delay.
-        /// Format: "00:00:01" for 1 second.
-        /// </summary>
-        public TimeSpan BaseDelay { get; set; } = TimeSpan.FromSeconds(1);
-
-        /// <summary>
-        /// Backoff strategy type: "Constant", "Linear", "Exponential".
-        /// </summary>
-        public string BackoffType { get; set; } = "Exponential"; // Constant, Linear, Exponential
-    }
+    public CircuitBreakerPolicySettings CircuitBreaker { get; set; } = new CircuitBreakerPolicySettings();
 
     /// <summary>
-    /// Configuration for a Circuit Breaker policy.
+    /// Gets or sets the settings for the Timeout policy component.
     /// </summary>
-    public class CircuitBreakerConfig
-    {
-        /// <summary>
-        /// Number of consecutive exceptions allowed before the circuit breaks.
-        /// </summary>
-        public int ExceptionsAllowedBeforeBreaking { get; set; } = 5;
+    public TimeoutPolicySettings Timeout { get; set; } = new TimeoutPolicySettings();
+}
 
-        /// <summary>
-        /// Duration the circuit stays open after breaking.
-        /// Format: "00:00:30" for 30 seconds.
-        /// </summary>
-        public TimeSpan DurationOfBreak { get; set; } = TimeSpan.FromSeconds(30);
-    }
+/// <summary>
+/// Settings for a Retry policy.
+/// </summary>
+public class RetryPolicySettings
+{
+    /// <summary>
+    /// Gets or sets a value indicating whether the retry policy is enabled.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
 
     /// <summary>
-    /// Configuration for a Timeout policy.
+    /// Gets or sets the number of retry attempts.
     /// </summary>
-    public class TimeoutConfig
-    {
-        /// <summary>
-        /// Overall timeout for an operation wrapped by this policy.
-        /// Format: "00:01:00" for 1 minute.
-        /// </summary>
-        public TimeSpan TimeoutValue { get; set; } = TimeSpan.FromSeconds(30);
-    }
+    public int RetryCount { get; set; } = 3;
+
+    /// <summary>
+    /// Gets or sets the base duration for exponential backoff (e.g., 1 second).
+    /// The actual sleep duration will be SleepDurationFactor ^ retryAttempt.
+    /// </summary>
+    public TimeSpan SleepDurationFactor { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Gets or sets the maximum jitter in milliseconds to add to the sleep duration,
+    /// helping to prevent thundering herd scenarios.
+    /// </summary>
+    public int MaxJitterMilliseconds { get; set; } = 100;
+}
+
+/// <summary>
+/// Settings for a Circuit Breaker policy.
+/// </summary>
+public class CircuitBreakerPolicySettings
+{
+    /// <summary>
+    /// Gets or sets a value indicating whether the circuit breaker policy is enabled.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the number of exceptions allowed before breaking the circuit.
+    /// </summary>
+    public int ExceptionsAllowedBeforeBreaking { get; set; } = 5;
+
+    /// <summary>
+    /// Gets or sets the duration for which the circuit will remain broken.
+    /// </summary>
+    public TimeSpan DurationOfBreak { get; set; } = TimeSpan.FromSeconds(30);
+}
+
+/// <summary>
+/// Settings for a Timeout policy.
+/// </summary>
+public class TimeoutPolicySettings
+{
+    /// <summary>
+    /// Gets or sets a value indicating whether the timeout policy is enabled.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the timeout duration for an operation.
+    /// </summary>
+    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(30);
 }

@@ -1,41 +1,18 @@
 using System;
 using System.Collections.Generic;
 
-namespace TheSSS.DICOMViewer.Integration.Models
-{
-    /// <summary>
-    /// Data Transfer Object representing the result of a license validation operation as exposed by the gateway.
-    /// Corresponds to REQ-LDM-LIC-004.
-    /// </summary>
-    public record LicenseValidationResultDto
-    {
-        /// <summary>
-        /// Indicates if the license is currently valid.
-        /// </summary>
-        public bool IsValid { get; init; }
+namespace TheSSS.DICOMViewer.Integration.Models;
 
-        /// <summary>
-        /// The expiration date of the license, if applicable and valid.
-        /// </summary>
-        public DateTime? ExpiryDate { get; init; }
-
-        /// <summary>
-        /// A list of features or modules enabled by this license.
-        /// </summary>
-        public List<string> Features { get; init; } = new List<string>();
-
-        /// <summary>
-        /// A message providing more context, especially if validation failed (e.g., "License expired", "Invalid key").
-        /// This is for domain-level errors from Odoo, not transport errors.
-        /// </summary>
-        public string? StatusMessage { get; init; }
-
-        public LicenseValidationResultDto(bool isValid, DateTime? expiryDate, List<string>? features, string? statusMessage = null)
-        {
-            IsValid = isValid;
-            ExpiryDate = expiryDate;
-            Features = features ?? new List<string>();
-            StatusMessage = statusMessage;
-        }
-    }
-}
+/// <summary>
+/// Data Transfer Object representing the result of a license validation operation as exposed by the gateway.
+/// </summary>
+/// <param name="IsValid">Indicates whether the license is valid.</param>
+/// <param name="Message">A message providing details about the validation status (e.g., "License valid", "License expired").</param>
+/// <param name="ExpiryDate">The expiration date of the license, if applicable.</param>
+/// <param name="EnabledFeatures">A list of features enabled by this license, if applicable.</param>
+public record LicenseValidationResultDto(
+    bool IsValid,
+    string Message,
+    DateTime? ExpiryDate,
+    List<string>? EnabledFeatures
+);

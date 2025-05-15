@@ -1,46 +1,39 @@
 using System;
 
-namespace TheSSS.DICOMViewer.Integration.Configuration
+namespace TheSSS.DICOMViewer.Integration.Configuration;
+
+/// <summary>
+/// Configuration settings for the ICredentialManager.
+/// Specifies secure store type, connection details, or rotation policy parameters.
+/// </summary>
+public class CredentialManagerSettings
 {
     /// <summary>
-    /// Configuration settings for the ICredentialManager.
+    /// Gets or sets the type of secure store to use for credentials (e.g., "EnvironmentVariables", "DPAPI", "AzureKeyVault").
+    /// This string identifier will determine the strategy used by CredentialManager.
     /// </summary>
-    public class CredentialManagerSettings
-    {
-        /// <summary>
-        /// The type of secure store to use for retrieving credentials.
-        /// Examples: "EnvironmentVariables", "AzureKeyVault", "HashiCorpVault", "DPAPI", "CustomSecureStore".
-        /// The actual implementation will depend on an ISecureStore interface from REPO-CROSS-CUTTING.
-        /// </summary>
-        public string StoreType { get; set; } = "EnvironmentVariables";
+    public string StoreType { get; set; } = "EnvironmentVariables"; // Default to environment variables for ease of use
 
-        /// <summary>
-        /// Path or connection string for the secure store, if applicable (e.g., KeyVault URI).
-        /// For "EnvironmentVariables", this might be a prefix for variable names.
-        /// </summary>
-        public string SecureStorePathOrPrefix { get; set; } = string.Empty;
+    /// <summary>
+    /// Gets or sets an optional path or connection string for the secure store, if applicable (e.g., path to a DPAPI-encrypted file, Key Vault URI).
+    /// </summary>
+    public string SecureStorePath { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Specifies if credential caching is enabled within the CredentialManager.
-        /// </summary>
-        public bool EnableCaching { get; set; } = true;
+    /// <summary>
+    /// Gets or sets a value indicating whether the CredentialManager should periodically check for rotated credentials.
+    /// Actual rotation mechanism is outside the scope of simple retrieval but this flag can enable more proactive fetching.
+    /// </summary>
+    public bool EnableCredentialRotationChecks { get; set; } = false; // Default to false as rotation is complex
 
-        /// <summary>
-        /// Duration for which credentials should be cached if caching is enabled.
-        /// Format: "00:05:00" for 5 minutes.
-        /// </summary>
-        public TimeSpan CacheDuration { get; set; } = TimeSpan.FromMinutes(5);
+    /// <summary>
+    /// Gets or sets the duration for which retrieved credentials should be cached in memory.
+    /// This helps reduce calls to the underlying secure store.
+    /// </summary>
+    public TimeSpan CredentialCacheDuration { get; set; } = TimeSpan.FromMinutes(5);
 
-        /// <summary>
-        /// If true, the CredentialManager might attempt to proactively refresh credentials
-        /// before they expire, if the underlying store supports such metadata.
-        /// </summary>
-        public bool EnableProactiveRotation { get; set; } = false;
-
-        /// <summary>
-        /// Interval for checking for credential rotation if EnableProactiveRotation is true.
-        /// Format: "01:00:00" for 1 hour.
-        /// </summary>
-        public TimeSpan RotationCheckInterval { get; set; } = TimeSpan.FromHours(1);
-    }
+    /// <summary>
+    /// Gets or sets the interval at which to check for credential rotation if EnableCredentialRotationChecks is true.
+    /// This property is only relevant if a background rotation check mechanism is implemented.
+    /// </summary>
+    public TimeSpan RotationCheckInterval { get; set; } = TimeSpan.FromHours(1);
 }

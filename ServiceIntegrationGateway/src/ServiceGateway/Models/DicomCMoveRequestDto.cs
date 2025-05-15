@@ -1,58 +1,37 @@
-using System;
 using System.Collections.Generic;
-using Dicom; // From fo-dicom-core
-using TheSSS.DICOMViewer.Infrastructure.Models; // Assuming DicomAe is here
 
-namespace TheSSS.DICOMViewer.Integration.Models
+namespace TheSSS.DICOMViewer.Integration.Models;
+
+/// <summary>
+/// Data Transfer Object for DICOM C-MOVE requests via the gateway.
+/// Specifies the source AE (implicitly the target of the C-MOVE-RQ), the destination AE,
+/// and identifiers for the DICOM objects to be moved.
+/// </summary>
+/// <param name="SourceAe">The DICOM Application Entity from which the data will be moved (i.e., the SCP that processes the C-MOVE RQ).</param>
+/// <param name="DestinationAETitle">The Application Entity Title of the destination where the DICOM objects should be sent.</param>
+/// <param name="StudyInstanceUids">An optional list of Study Instance UIDs to move. If provided, all series and instances under these studies will be targeted.</param>
+/// <param name="SeriesInstanceUids">An optional list of Series Instance UIDs to move. If provided, all instances under these series will be targeted.
+/// This is typically used in conjunction with a specific StudyInstanceUid for context.</param>
+/// <param name="SopInstanceUids">An optional list of SOP Instance UIDs to move. These are specific image/object instances.</param>
+public record DicomCMoveRequestDto(
+    DicomAETarget SourceAe, // This is the AE that will perform the C-STORE sub-operations
+    string DestinationAETitle,
+    List<string>? StudyInstanceUids,
+    List<string>? SeriesInstanceUids,
+    List<string>? SopInstanceUids
+)
 {
     /// <summary>
-    /// Data Transfer Object for DICOM C-MOVE requests via the gateway.
-    /// Corresponds to REQ-DNSPI-001.
+    /// Validates that at least one set of UIDs is provided.
     /// </summary>
-    public record DicomCMoveRequestDto
+    /// <exception cref="ArgumentException">Thrown if no UIDs are specified for the move operation.</exception>
+    public void Validate()
     {
-        /// <summary>
-        /// The source DICOM Application Entity (SCP Query/Retrieve Server) from which to move the data.
-        /// </summary>
-        public DicomAe SourceAe { get; init; }
-
-        /// <summary>
-        /// The AE Title of the destination where the DICOM instances should be sent.
-        /// This is often the AE Title of the application initiating the C-MOVE.
-        /// </summary>
-        public string DestinationAeTitle { get; init; }
-
-        /// <summary>
-        /// A list of Study Instance UIDs to be moved.
-        /// Depending on the C-MOVE implementation, this could also be Series or SOP Instance UIDs,
-        /// often specified within a DicomDataset. For simplicity, using a list of UIDs here.
-        /// The SDS implies `List<string> StudyInstanceUids`.
-        /// </summary>
-        public List<string> StudyInstanceUids { get; init; } = new List<string>();
-
-        // Alternatively, a DicomDataset could be used for more complex C-MOVE identifiers:
-        // public DicomDataset MoveIdentifiers { get; init; }
-
-        /// <summary>
-        /// Optional: The Calling AE Title for this SCU operation.
-        /// If not provided, a default from DicomGatewaySettings might be used.
-        /// </summary>
-        public string? CallingAeTitle { get; init; }
-
-
-        public DicomCMoveRequestDto(DicomAe sourceAe, string destinationAeTitle, List<string> studyInstanceUids, string? callingAeTitle = null)
+        if ((StudyInstanceUids == null || StudyInstanceUids.Count == 0) &&
+            (SeriesInstanceUids == null || SeriesInstanceUids.Count == 0) &&
+            (SopInstanceUids == null || SopInstanceUids.Count == 0))
         {
-            if (sourceAe == null)
-                throw new ArgumentNullException(nameof(sourceAe));
-            if (string.IsNullOrWhiteSpace(destinationAeTitle))
-                throw new ArgumentException("Destination AE Title cannot be null or whitespace.", nameof(destinationAeTitle));
-            if (studyInstanceUids == null || studyInstanceUids.Count == 0 || studyInstanceUids.Any(string.IsNullOrWhiteSpace))
-                throw new ArgumentException("Study Instance UIDs list cannot be null, empty, or contain invalid UIDs.", nameof(studyInstanceUids));
-
-            SourceAe = sourceAe;
-            DestinationAeTitle = destinationAeTitle;
-            StudyInstanceUids = studyInstanceUids;
-            CallingAeTitle = callingAeTitle;
+            throw new ArgumentException("At least one of StudyInstanceUids, SeriesInstanceUids, or SopInstanceUids must be provided for a C-MOVE operation.");
         }
     }
 }

@@ -1,33 +1,13 @@
-using System;
+namespace TheSSS.DICOMViewer.Integration.Models;
 
-namespace TheSSS.DICOMViewer.Integration.Models
-{
-    /// <summary>
-    /// Data Transfer Object representing the result of a print job submission as exposed by the gateway.
-    /// Corresponds to REQ-5-001.
-    /// </summary>
-    public record PrintResultDto
-    {
-        /// <summary>
-        /// Indicates whether the print job was successfully submitted to the print spooler.
-        /// </summary>
-        public bool Success { get; init; }
-
-        /// <summary>
-        /// The job identifier assigned by the print system, if available.
-        /// </summary>
-        public string? JobId { get; init; } // Changed to string as Job IDs can be non-integer
-
-        /// <summary>
-        /// A status message from the print operation.
-        /// </summary>
-        public string? StatusMessage { get; init; }
-
-        public PrintResultDto(bool success, string? jobId, string? statusMessage)
-        {
-            Success = success;
-            JobId = jobId;
-            StatusMessage = statusMessage;
-        }
-    }
-}
+/// <summary>
+/// Data Transfer Object representing the result of a print job submission as exposed by the gateway.
+/// </summary>
+/// <param name="IsSuccessful">Indicates whether the print job was successfully submitted to the print subsystem.</param>
+/// <param name="Message">A message providing details about the submission status (e.g., "Print job submitted", "Printer not found").</param>
+/// <param name="PrintJobId">An optional identifier for the print job assigned by the print subsystem, if available.</param>
+public record PrintResultDto(
+    bool IsSuccessful,
+    string Message,
+    string? PrintJobId
+);

@@ -1,43 +1,23 @@
-using System;
 using System.Collections.Generic;
-using Dicom; // From fo-dicom-core
+// Using Dictionary<string, string> to represent a DICOM dataset for loose coupling,
+// aligning with DicomCFindRequestDto.QueryDataset and initial SDS for "object MatchedDatasets".
 
-namespace TheSSS.DICOMViewer.Integration.Models
-{
-    /// <summary>
-    /// Data Transfer Object for results of DICOM C-FIND operations.
-    /// </summary>
-    public record DicomCFindResultDto
-    {
-        /// <summary>
-        /// Indicates whether the C-FIND operation completed successfully (e.g., status Success or Pending).
-        /// Note: A "successful" C-FIND might still yield zero results.
-        /// </summary>
-        public bool Success { get; init; }
+namespace TheSSS.DICOMViewer.Integration.Models;
 
-        /// <summary>
-        /// The final DICOM status code for the C-FIND operation.
-        /// (e.g., 0x0000 for Success, 0xFF00 or 0xFF01 for Pending, others for failure/cancel).
-        /// </summary>
-        public ushort DicomStatusCode { get; init; }
-
-        /// <summary>
-        /// A human-readable status message.
-        /// </summary>
-        public string? StatusMessage { get; init; }
-
-        /// <summary>
-        /// A list of DicomDataset objects representing the matched results from the C-FIND query.
-        /// This list accumulates results from C-FIND-RSP messages where status is Pending.
-        /// </summary>
-        public List<DicomDataset> MatchedDatasets { get; init; } = new List<DicomDataset>();
-
-        public DicomCFindResultDto(bool success, ushort dicomStatusCode, string? statusMessage, List<DicomDataset>? matchedDatasets = null)
-        {
-            Success = success;
-            DicomStatusCode = dicomStatusCode;
-            StatusMessage = statusMessage;
-            MatchedDatasets = matchedDatasets ?? new List<DicomDataset>();
-        }
-    }
-}
+/// <summary>
+/// Data Transfer Object for results of DICOM C-FIND operations.
+/// Contains a list of matched DICOM datasets and the overall operation status.
+/// </summary>
+/// <param name="IsSuccessful">Indicates whether the C-FIND operation itself completed without critical errors.
+/// Note that a successful C-FIND operation might still yield zero matches.</param>
+/// <param name="DicomStatusCode">The DICOM status code of the C-FIND operation (e.g., Success, Pending, Failure).</param>
+/// <param name="StatusMessage">A human-readable message describing the outcome of the C-FIND operation.</param>
+/// <param name="MatchedDatasets">A list of datasets that matched the query criteria. Each dataset is represented as a
+/// dictionary where keys are DICOM tag strings (e.g., "0010,0010") and values are the corresponding values.
+/// This list can be empty if no matches were found but the operation was otherwise successful.</param>
+public record DicomCFindResultDto(
+    bool IsSuccessful,
+    ushort DicomStatusCode,
+    string StatusMessage,
+    List<Dictionary<string, string>>? MatchedDatasets // List of simplified DICOM datasets
+);

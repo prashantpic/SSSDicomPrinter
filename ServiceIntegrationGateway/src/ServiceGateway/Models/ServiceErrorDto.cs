@@ -1,54 +1,21 @@
-using System;
+namespace TheSSS.DICOMViewer.Integration.Models;
 
-namespace TheSSS.DICOMViewer.Integration.Models
-{
-    /// <summary>
-    /// Common Data Transfer Object for representing errors from any service integration,
-    /// providing a standardized error structure.
-    /// </summary>
-    public record ServiceErrorDto
-    {
-        /// <summary>
-        /// A unique, machine-readable error code (e.g., "ODOO_API_ERROR_401", "SMTP_AUTH_FAILED").
-        /// </summary>
-        public string ErrorCode { get; init; }
-
-        /// <summary>
-        /// A human-readable error message suitable for display to users or for logging.
-        /// </summary>
-        public string Message { get; init; }
-
-        /// <summary>
-        /// Optional: Additional technical details about the error, which might include
-        /// a stack trace snippet (in debug/dev environments), or specific data points that caused the error.
-        /// Should be used carefully to avoid exposing sensitive information.
-        /// </summary>
-        public string? Details { get; init; }
-
-        /// <summary>
-        /// Identifier of the source service where the error originated (e.g., "OdooApiAdapter", "SmtpService", "DicomNetwork").
-        /// </summary>
-        public string SourceService { get; init; }
-
-        /// <summary>
-        /// Optional: Timestamp when the error occurred.
-        /// </summary>
-        public DateTime TimestampUtc { get; init; }
-
-        public ServiceErrorDto(string errorCode, string message, string sourceService, string? details = null)
-        {
-            if (string.IsNullOrWhiteSpace(errorCode))
-                throw new ArgumentException("Error code cannot be null or whitespace.", nameof(errorCode));
-            if (string.IsNullOrWhiteSpace(message))
-                throw new ArgumentException("Message cannot be null or whitespace.", nameof(message));
-            if (string.IsNullOrWhiteSpace(sourceService))
-                throw new ArgumentException("Source service cannot be null or whitespace.", nameof(sourceService));
-
-            ErrorCode = errorCode;
-            Message = message;
-            Details = details;
-            SourceService = sourceService;
-            TimestampUtc = DateTime.UtcNow;
-        }
-    }
-}
+/// <summary>
+/// Common Data Transfer Object for representing errors from any service integration.
+/// Provides a standardized error structure for consistent error handling by clients of the gateway.
+/// </summary>
+/// <param name="Code">A structured, machine-readable error code representing the type of error
+/// (e.g., "ODOO_API_ERROR_401", "NETWORK_TIMEOUT", "DICOM_SCP_FAILURE_A700").</param>
+/// <param name="Message">A concise, human-readable message summarizing the error.
+/// Suitable for display to users or for high-level logging.</param>
+/// <param name="Details">More detailed information about the error, which may include technical specifics,
+/// stack traces (though usually omitted for external DTOs), or original error messages from the underlying service.
+/// This field can be used for debugging or more in-depth error analysis.</param>
+/// <param name="SourceService">An identifier for the external service or component within the gateway
+/// where the error originated (e.g., "OdooApiAdapter", "SmtpService", "DicomNetworkAdapter").</param>
+public record ServiceErrorDto(
+    string Code,
+    string Message,
+    string? Details, // Made nullable as details might not always be available or relevant
+    string SourceService
+);

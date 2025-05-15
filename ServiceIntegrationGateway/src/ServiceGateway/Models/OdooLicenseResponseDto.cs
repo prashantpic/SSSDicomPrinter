@@ -1,58 +1,37 @@
 using System;
 using System.Collections.Generic;
-using System.Text.Json.Serialization; // For JsonPropertyName if needed for mapping
+using System.Text.Json.Serialization; // For potential custom mapping if Odoo uses different names
 
-namespace TheSSS.DICOMViewer.Integration.Models
-{
-    /// <summary>
-    /// Data Transfer Object for Odoo license validation responses, received by OdooApiAdapter.
-    /// Represents the expected structure of the successful API response body from Odoo.
-    /// Corresponds to REQ-LDM-LIC-004.
-    /// </summary>
-    public record OdooLicenseResponseDto
-    {
-        /// <summary>
-        /// Indicates if the license key is valid according to Odoo.
-        /// </summary>
-        [JsonPropertyName("is_valid")]
-        public bool IsValid { get; init; }
+namespace TheSSS.DICOMViewer.Integration.Models;
 
-        /// <summary>
-        /// License expiry date, if applicable.
-        /// </summary>
-        [JsonPropertyName("expiry_date")]
-        public DateTime? ExpiryDate { get; init; }
+/// <summary>
+/// Data Transfer Object for Odoo license validation responses, received by the OdooApiAdapter.
+/// Represents the data structure received from the Odoo API after a license validation attempt.
+/// </summary>
+/// <param name="IsValid">Indicates if the license is considered valid by the Odoo API.</param>
+/// <param name="Message">A message from the Odoo API describing the status of the license (e.g., "valid", "expired", "not_found").</param>
+/// <param name="ExpiryDate">The expiration date of the license, if applicable.</param>
+/// <param name="Features">A list of features enabled by this license, if provided by the API.</param>
+/// <param name="ErrorCode">An optional error code from Odoo if the request failed or license is invalid in a specific way.</param>
+/// <param name="RawData">Additional raw data or complex objects returned by Odoo, if any, for more detailed diagnostics or features.
+/// Using Dictionary&lt;string, object&gt; as specified in initial SDS for flexibility.</param>
+public record OdooLicenseResponseDto(
+    // Mapped from Odoo's 'status' or a dedicated validity field
+    [property: JsonPropertyName("is_valid")] // Example if Odoo uses snake_case
+    bool IsValid,
 
-        /// <summary>
-        /// List of features enabled by the license.
-        /// </summary>
-        [JsonPropertyName("features")]
-        public List<string>? Features { get; init; }
+    [property: JsonPropertyName("message")]
+    string Message,
 
-        /// <summary>
-        /// A message from Odoo, especially if validation failed (e.g., "License expired", "Key not found").
-        /// This field is part of a successful API response that indicates a domain-level validation failure.
-        /// </summary>
-        [JsonPropertyName("status_message")]
-        public string? StatusMessage { get; init; }
+    [property: JsonPropertyName("expiry_date")]
+    DateTime? ExpiryDate,
 
-        /// <summary>
-        /// Odoo might return a specific error code even in a 200 OK response for domain errors.
-        /// </summary>
-        [JsonPropertyName("error_code")]
-        public string? ErrorCode { get; init; }
+    [property: JsonPropertyName("enabled_features")]
+    List<string>? Features,
 
-        // Parameterless constructor for deserialization
-        public OdooLicenseResponseDto() { }
+    [property: JsonPropertyName("error_code")]
+    string? ErrorCode = null,
 
-        // Constructor for manual creation (e.g., in tests)
-        public OdooLicenseResponseDto(bool isValid, DateTime? expiryDate, List<string>? features, string? statusMessage, string? errorCode = null)
-        {
-            IsValid = isValid;
-            ExpiryDate = expiryDate;
-            Features = features;
-            StatusMessage = statusMessage;
-            ErrorCode = errorCode;
-        }
-    }
-}
+    [property: JsonPropertyName("data")] // As per initial SDS for raw data
+    Dictionary<string, object>? RawData = null
+);
