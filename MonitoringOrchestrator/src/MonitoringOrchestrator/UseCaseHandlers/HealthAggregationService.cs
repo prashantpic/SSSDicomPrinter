@@ -1,177 +1,154 @@
-```csharp
-using Microsoft.Extensions.Logging;
 using TheSSS.DICOMViewer.Monitoring.Contracts;
 using TheSSS.DICOMViewer.Monitoring.Exceptions;
-using TheSSS.DICOMViewer.Monitoring.Integrations;
 using TheSSS.DICOMViewer.Monitoring.Interfaces;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
 
-namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers
+namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers;
+
+public class HealthAggregationService
 {
-    /// <summary>
-    /// Service responsible for collecting data from various health sources and 
-    /// aggregating it into a unified health report.
-    /// </summary>
-    public class HealthAggregationService
+    private readonly ILoggerAdapter<HealthAggregationService> _logger;
+    private readonly IEnumerable<IHealthDataSource> _dataSources;
+    private readonly PrometheusMetricsCollector? _metricsCollector; // Optional, if direct update is preferred
+
+    private enum HealthLevel { Healthy = 0, Warning = 1, Degraded = 2, Error = 3 }
+
+    public HealthAggregationService(
+        ILoggerAdapter<HealthAggregationService> logger,
+        IEnumerable<IHealthDataSource> dataSources,
+        PrometheusMetricsCollector? metricsCollector = null) // Make metricsCollector optional
     {
-        private readonly IEnumerable<IHealthDataSource> _healthDataSources;
-        private readonly ILogger<HealthAggregationService> _logger;
-        private readonly PrometheusMetricsCollector _prometheusMetricsCollector; // As per DI registration instruction
+        _logger = logger;
+        _dataSources = dataSources ?? throw new ArgumentNullException(nameof(dataSources));
+        _metricsCollector = metricsCollector;
+    }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="HealthAggregationService"/> class.
-        /// </summary>
-        /// <param name="healthDataSources">An enumerable collection of health data source implementations.</param>
-        /// <param name="logger">The logger instance.</param>
-        /// <param name="prometheusMetricsCollector">The Prometheus metrics collector instance.</param>
-        public HealthAggregationService(
-            IEnumerable<IHealthDataSource> healthDataSources,
-            ILogger<HealthAggregationService> logger,
-            PrometheusMetricsCollector prometheusMetricsCollector)
+    public async Task<HealthReportDto> AggregateHealthDataAsync(CancellationToken cancellationToken)
+    {
+        _logger.Info("Starting health data aggregation cycle.");
+        var report = new HealthReportDto
         {
-            _healthDataSources = healthDataSources ?? throw new ArgumentNullException(nameof(healthDataSources));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _prometheusMetricsCollector = prometheusMetricsCollector ?? throw new ArgumentNullException(nameof(prometheusMetricsCollector));
-        }
+            Timestamp = DateTimeOffset.UtcNow,
+            // OverallStatus will be determined based on aggregated data
+        };
 
-        /// <summary>
-        /// Asynchronously collects health data from all registered data sources and aggregates it into a <see cref="HealthReportDto"/>.
-        /// </summary>
-        /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-        /// <returns>A task that represents the asynchronous operation. The task result contains the aggregated <see cref="HealthReportDto"/>.</returns>
-        public async Task<HealthReportDto> AggregateHealthAsync(CancellationToken cancellationToken)
+        var currentOverallHealthLevel = HealthLevel.Healthy;
+
+        var collectionTasks = _dataSources.Select(source => CollectDataFromSourceAsync(source, cancellationToken)).ToList();
+        
+        var results = await Task.WhenAll(collectionTasks);
+
+        foreach (var result in results)
         {
-            _logger.LogInformation("Starting health data aggregation.");
-            var report = new HealthReportDto
+            if (!result.Success || result.DataObject == null)
             {
-                Timestamp = DateTimeOffset.UtcNow,
-                StorageInfo = null,
-                DatabaseConnectivity = null,
-                PacsStatuses = new List<PacsConnectionInfoDto>(),
-                LicenseStatus = null,
-                SystemErrorSummary = null,
-                AutomatedTaskStatuses = new List<AutomatedTaskStatusInfoDto>(),
-                Details = new Dictionary<string, object>()
-            };
-
-            var dataSourceTasks = _healthDataSources.Select(async dataSource =>
-            {
-                try
-                {
-                    _logger.LogDebug("Fetching health data from {DataSourceType}", dataSource.GetType().Name);
-                    var healthData = await dataSource.GetHealthDataAsync(cancellationToken);
-                    _logger.LogDebug("Successfully fetched health data from {DataSourceType}", dataSource.GetType().Name);
-                    return (dataSource.GetType().Name, healthData, (Exception?)null);
-                }
-                catch (DataSourceUnavailableException ex)
-                {
-                    _logger.LogError(ex, "Data source {DataSourceType} is unavailable.", dataSource.GetType().Name);
-                    return (dataSource.GetType().Name, (object?)null, ex);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error fetching health data from {DataSourceType}.", dataSource.GetType().Name);
-                    return (dataSource.GetType().Name, (object?)null, ex);
-                }
-            }).ToList();
-
-            var results = await Task.WhenAll(dataSourceTasks);
-
-            bool hasErrors = false;
-            bool hasWarnings = false; // Placeholder for future warning logic from sources
-
-            foreach (var result in results)
-            {
-                if (result.Item3 != null) // An exception occurred
-                {
-                    hasErrors = true;
-                    report.Details[$"{result.Item1}_Error"] = result.Item3.Message;
-                    continue;
-                }
-
-                if (result.healthData == null)
-                {
-                    _logger.LogWarning("Data source {DataSourceType} returned null data.", result.Item1);
-                    // Potentially mark as warning or error depending on specific source requirements
-                    report.Details[$"{result.Item1}_Warning"] = "Data source returned null data.";
-                    continue;
-                }
-                
-                AssignHealthDataToReport(report, result.healthData);
+                // If a data source fails, consider the system Degraded.
+                // Critical failures might elevate this to Error depending on policy.
+                currentOverallHealthLevel = UpdateHealthLevel(currentOverallHealthLevel, HealthLevel.Degraded);
+                _logger.Warning($"Data source '{result.SourceType}' failed to provide data or returned null.");
+                report.AdditionalData.TryAdd($"Error_{result.SourceType}", $"Data source '{result.SourceType}' failed or returned null.");
+                continue;
             }
 
-            // Determine overall system status
-            if (hasErrors || report.StorageInfo?.UsedPercentage > 95 || (report.DatabaseConnectivity?.IsConnected == false) || 
-                (report.PacsStatuses != null && report.PacsStatuses.Any(p => !p.IsConnected)) ||
-                (report.LicenseStatus?.IsValid == false) ||
-                (report.SystemErrorSummary?.CriticalErrorCountLast24Hours > 0) ||
-                (report.AutomatedTaskStatuses != null && report.AutomatedTaskStatuses.Any(t => t.LastRunStatus?.Equals("Failed", StringComparison.OrdinalIgnoreCase) == true)))
-            {
-                report.SystemStatus = SystemStatus.Error;
-            }
-            else if (hasWarnings || report.StorageInfo?.UsedPercentage > 80 ||
-                     (report.LicenseStatus != null && report.LicenseStatus.DaysUntilExpiry.HasValue && report.LicenseStatus.DaysUntilExpiry <= 7))
-            {
-                report.SystemStatus = SystemStatus.Warning;
-            }
-            else
-            {
-                report.SystemStatus = SystemStatus.Healthy;
-            }
+            object data = result.DataObject;
+            HealthLevel itemHealthLevel = HealthLevel.Healthy; // Assume healthy for this item
 
-            _logger.LogInformation("Health data aggregation completed. Overall status: {SystemStatus}", report.SystemStatus);
-
-            try
-            {
-                _prometheusMetricsCollector.UpdateMetrics(report);
-                _logger.LogInformation("Prometheus metrics updated successfully.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to update Prometheus metrics.");
-            }
-
-            return report;
-        }
-
-        private void AssignHealthDataToReport(HealthReportDto report, object healthData)
-        {
-            switch (healthData)
+            switch (data)
             {
                 case StorageHealthInfoDto storageInfo:
                     report.StorageInfo = storageInfo;
+                    if (storageInfo.UsedPercentage > 95) itemHealthLevel = HealthLevel.Error;
+                    else if (storageInfo.UsedPercentage > 90) itemHealthLevel = HealthLevel.Warning;
+                    _logger.Debug($"Aggregated Storage Info: Identifier='{storageInfo.StorageIdentifier}', Used={storageInfo.UsedPercentage:F1}%. Item Health: {itemHealthLevel}");
                     break;
-                case DatabaseConnectivityInfoDto dbConnectivityInfo:
-                    report.DatabaseConnectivity = dbConnectivityInfo;
+                case DatabaseConnectivityInfoDto dbInfo:
+                    report.DatabaseConnectivity = dbInfo;
+                    if (!dbInfo.IsConnected) itemHealthLevel = HealthLevel.Error;
+                    else if (dbInfo.LatencyMs > 1000) itemHealthLevel = HealthLevel.Warning; // Example latency warning
+                    _logger.Debug($"Aggregated Database Info: Connected={dbInfo.IsConnected}, Latency={dbInfo.LatencyMs}ms. Item Health: {itemHealthLevel}");
                     break;
-                case IEnumerable<PacsConnectionInfoDto> pacsStatuses:
-                    report.PacsStatuses.AddRange(pacsStatuses);
+                case IEnumerable<PacsConnectionInfoDto> pacsInfos:
+                    report.PacsConnections = pacsInfos.ToList();
+                    if (pacsInfos.Any(p => !p.IsConnected))
+                    {
+                        // If any PACS node is critical (e.g., based on consecutive failures if that data was available) -> Error
+                        // For now, any disconnected PACS is a Warning, multiple or persistent could be Error.
+                        itemHealthLevel = HealthLevel.Warning; 
+                        if (pacsInfos.Count(p => !p.IsConnected) > 1 || pacsInfos.Any(p => !p.IsConnected && (DateTimeOffset.UtcNow - (p.LastFailedEchoTimestamp ?? DateTimeOffset.MinValue)).TotalMinutes > 30))
+                        {
+                             itemHealthLevel = HealthLevel.Error; // Example: multiple failures or prolonged failure
+                        }
+                    }
+                    _logger.Debug($"Aggregated PACS Info: {pacsInfos.Count()} nodes. Disconnected: {pacsInfos.Count(p => !p.IsConnected)}. Item Health: {itemHealthLevel}");
                     break;
-                case PacsConnectionInfoDto pacsStatus: // If a source returns a single PACS status
-                     report.PacsStatuses.Add(pacsStatus);
+                case LicenseStatusInfoDto licenseInfo:
+                    report.LicenseStatus = licenseInfo;
+                    if (!licenseInfo.IsValid) itemHealthLevel = HealthLevel.Error;
+                    else if (licenseInfo.DaysUntilExpiry.HasValue && licenseInfo.DaysUntilExpiry.Value < 7) itemHealthLevel = HealthLevel.Error;
+                    else if (licenseInfo.DaysUntilExpiry.HasValue && licenseInfo.DaysUntilExpiry.Value < 30) itemHealthLevel = HealthLevel.Warning;
+                    _logger.Debug($"Aggregated License Info: Valid={licenseInfo.IsValid}, ExpiresInDays={licenseInfo.DaysUntilExpiry}. Item Health: {itemHealthLevel}");
                     break;
-                case LicenseStatusInfoDto licenseStatus:
-                    report.LicenseStatus = licenseStatus;
+                case SystemErrorInfoSummaryDto errorInfo:
+                    report.SystemErrorSummary = errorInfo;
+                    if (errorInfo.CriticalErrorCountLast24Hours > 5) itemHealthLevel = HealthLevel.Error; // Example threshold
+                    else if (errorInfo.CriticalErrorCountLast24Hours > 0) itemHealthLevel = HealthLevel.Warning;
+                    _logger.Debug($"Aggregated System Error Info: CriticalErrors(24h)={errorInfo.CriticalErrorCountLast24Hours}. Item Health: {itemHealthLevel}");
                     break;
-                case SystemErrorInfoSummaryDto errorSummary:
-                    report.SystemErrorSummary = errorSummary;
-                    break;
-                case IEnumerable<AutomatedTaskStatusInfoDto> taskStatuses:
-                    report.AutomatedTaskStatuses.AddRange(taskStatuses);
-                    break;
-                case AutomatedTaskStatusInfoDto taskStatus:  // If a source returns a single task status
-                    report.AutomatedTaskStatuses.Add(taskStatus);
+                case IEnumerable<AutomatedTaskStatusInfoDto> taskInfos:
+                    report.AutomatedTaskStatuses = taskInfos.ToList();
+                    if (taskInfos.Any(t => t.LastRunStatus == "Failed"))
+                    {
+                        itemHealthLevel = HealthLevel.Error;
+                    }
+                    else if (taskInfos.Any(t => t.LastRunStatus != "Success" && t.LastRunStatus != "Running" && t.NextRunTimestamp.HasValue && t.NextRunTimestamp.Value < DateTimeOffset.UtcNow))
+                    {
+                        // Task is overdue and not successful
+                        itemHealthLevel = HealthLevel.Warning;
+                    }
+                    _logger.Debug($"Aggregated Automated Task Info: {taskInfos.Count()} tasks. Failed: {taskInfos.Count(t => t.LastRunStatus == "Failed")}. Item Health: {itemHealthLevel}");
                     break;
                 default:
-                    _logger.LogWarning("Received unknown health data type: {DataType}. Adding to 'Details'.", healthData.GetType().Name);
-                    report.Details[healthData.GetType().Name] = healthData;
+                    _logger.Warning($"Unknown data type received from source '{result.SourceType}': {data.GetType().FullName}");
+                    report.AdditionalData.TryAdd($"UnknownData_{result.SourceType}", data);
                     break;
             }
+            currentOverallHealthLevel = UpdateHealthLevel(currentOverallHealthLevel, itemHealthLevel);
+        }
+
+        report.OverallStatus = currentOverallHealthLevel.ToString();
+        _logger.Info($"Health data aggregation completed. Overall system status: {report.OverallStatus}");
+
+        // Optionally, update Prometheus metrics directly if configured
+        _metricsCollector?.UpdateMetrics(report);
+
+        return report;
+    }
+
+    private async Task<(string SourceType, object? DataObject, bool Success)> CollectDataFromSourceAsync(
+        IHealthDataSource source, CancellationToken cancellationToken)
+    {
+        string sourceTypeName = source.GetType().Name.Replace("HealthDataSource", "").Replace("DataSource", "");
+        _logger.Debug($"Attempting to collect data from source: {sourceTypeName}");
+        try
+        {
+            var data = await source.GetHealthDataAsync(cancellationToken);
+            _logger.Debug($"Successfully collected data from source: {sourceTypeName}");
+            return (sourceTypeName, data, true);
+        }
+        catch (DataSourceUnavailableException ex)
+        {
+            _logger.Warning($"Data source {sourceTypeName} is unavailable. Message: {ex.Message}", ex);
+            return (sourceTypeName, null, false); // Report as failure but don't stop aggregation
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, $"An unexpected error occurred while collecting data from source {sourceTypeName}.");
+            return (sourceTypeName, null, false); // Report as failure but don't stop aggregation
         }
     }
+
+    private HealthLevel UpdateHealthLevel(HealthLevel currentLevel, HealthLevel newItemLevel)
+    {
+        return (HealthLevel)Math.Max((int)currentLevel, (int)newItemLevel);
+    }
 }
-```

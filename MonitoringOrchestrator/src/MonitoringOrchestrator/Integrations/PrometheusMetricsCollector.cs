@@ -1,283 +1,220 @@
-```csharp
-using Microsoft.Extensions.Logging;
 using Prometheus;
 using TheSSS.DICOMViewer.Monitoring.Contracts;
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
 
-namespace TheSSS.DICOMViewer.Monitoring.Integrations
+namespace TheSSS.DICOMViewer.Monitoring.Integrations;
+
+public class PrometheusMetricsCollector
 {
-    /// <summary>
-    /// Service for collecting and exposing metrics via Prometheus.NET.
-    /// Exposes internal health metrics in a format consumable by Prometheus for external monitoring dashboards.
-    /// </summary>
-    public class PrometheusMetricsCollector
+    private readonly ILoggerAdapter<PrometheusMetricsCollector> _logger;
+
+    // --- Metric Definitions ---
+    // Using "_" as separator and "total" suffix for counters is Prometheus best practice.
+    // Using "bytes", "seconds", "ratio" for units where applicable.
+
+    private static readonly Gauge DicomViewerStorageTotalBytes = Metrics.CreateGauge(
+        "dicomviewer_storage_total_bytes",
+        "Total storage capacity on the DICOM repository volume in bytes.",
+        new GaugeConfiguration { LabelNames = new[] { "storage_id" }, SuppressInitialValue = true }
+    );
+
+    private static readonly Gauge DicomViewerStorageFreeBytes = Metrics.CreateGauge(
+        "dicomviewer_storage_free_bytes",
+        "Free storage space on the DICOM repository volume in bytes.",
+        new GaugeConfiguration { LabelNames = new[] { "storage_id" }, SuppressInitialValue = true }
+    );
+
+    private static readonly Gauge DicomViewerStorageUsedRatio = Metrics.CreateGauge(
+        "dicomviewer_storage_used_ratio",
+        "Ratio of storage space used on the DICOM repository volume (0.0 to 1.0).",
+        new GaugeConfiguration { LabelNames = new[] { "storage_id" }, SuppressInitialValue = true }
+    );
+
+    private static readonly Gauge DicomViewerDatabaseConnectedStatus = Metrics.CreateGauge(
+        "dicomviewer_database_connected_status",
+        "Database connectivity status (1 for connected, 0 for disconnected).",
+        new GaugeConfiguration { SuppressInitialValue = true }
+    );
+
+    private static readonly Gauge DicomViewerDatabaseLatencySeconds = Metrics.CreateGauge(
+        "dicomviewer_database_latency_seconds",
+        "Database connectivity check latency in seconds.",
+        new GaugeConfiguration { SuppressInitialValue = true }
+    );
+
+    private static readonly Gauge DicomViewerPacsNodeConnectedStatus = Metrics.CreateGauge(
+        "dicomviewer_pacs_node_connected_status",
+        "PACS node connectivity status (1 for connected, 0 for disconnected).",
+        new GaugeConfiguration { LabelNames = new[] { "aetitle" }, SuppressInitialValue = true }
+    );
+
+    private static readonly Gauge DicomViewerLicenseValidStatus = Metrics.CreateGauge(
+        "dicomviewer_license_valid_status",
+        "Application license validity status (1 for valid, 0 for invalid).",
+        new GaugeConfiguration { SuppressInitialValue = true }
+    );
+
+    private static readonly Gauge DicomViewerLicenseDaysUntilExpiry = Metrics.CreateGauge(
+        "dicomviewer_license_days_until_expiry",
+        "Number of days until the application license expires. (-1 if not applicable/invalid).",
+        new GaugeConfiguration { SuppressInitialValue = true }
+    );
+
+    private static readonly Gauge DicomViewerCriticalErrorCount = Metrics.CreateGauge(
+        "dicomviewer_critical_error_count",
+        "Number of critical system errors logged in the configured lookback period.",
+        new GaugeConfiguration { SuppressInitialValue = true }
+    );
+
+    private static readonly Gauge DicomViewerAutomatedTaskLastRunStatus = Metrics.CreateGauge(
+        "dicomviewer_automated_task_last_run_status",
+        "Status of the last automated task run (1 for Success, 0 for Failed, 2 for Running, 3 for Unknown/Skipped).",
+        new GaugeConfiguration { LabelNames = new[] { "task_name" }, SuppressInitialValue = true }
+    );
+    
+    private static readonly Gauge DicomViewerAutomatedTaskLastRunTimestampSeconds = Metrics.CreateGauge(
+        "dicomviewer_automated_task_last_run_timestamp_seconds",
+        "Unix timestamp of the last recorded run time for automated tasks.",
+        new GaugeConfiguration { LabelNames = new[] { "task_name" }, SuppressInitialValue = true }
+    );
+
+    private static readonly Gauge DicomViewerOverallHealthStatus = Metrics.CreateGauge(
+        "dicomviewer_overall_health_status",
+        "Overall system health status (0=Healthy, 1=Warning, 2=Degraded, 3=Error).",
+         new GaugeConfiguration { SuppressInitialValue = true }
+    );
+
+
+    public PrometheusMetricsCollector(ILoggerAdapter<PrometheusMetricsCollector> logger)
     {
-        private readonly ILogger<PrometheusMetricsCollector> _logger;
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _logger.Info("PrometheusMetricsCollector initialized. Metrics are statically registered.");
+    }
 
-        private static readonly Gauge DicomViewerSystemOverallStatus = Metrics
-            .CreateGauge("dicomviewer_system_overall_status", "Overall health status of the DICOM Viewer system (1=Healthy, 2=Warning, 3=Error).");
-
-        // Storage Metrics
-        private static readonly Gauge DicomViewerStorageFreeBytes = Metrics
-            .CreateGauge("dicomviewer_storage_free_bytes", "Free disk space in bytes for monitored paths.", "path");
-        private static readonly Gauge DicomViewerStorageTotalCapacityBytes = Metrics
-            .CreateGauge("dicomviewer_storage_total_capacity_bytes", "Total disk capacity in bytes for monitored paths.", "path");
-        private static readonly Gauge DicomViewerStorageUsedPercentage = Metrics
-            .CreateGauge("dicomviewer_storage_used_percent", "Percentage of disk space used for monitored paths.", "path");
-
-        // Database Metrics
-        private static readonly Gauge DicomViewerDbConnected = Metrics
-            .CreateGauge("dicomviewer_db_connected", "Database connectivity status (1 if connected, 0 if not).");
-        private static readonly Gauge DicomViewerDbLatencyMs = Metrics
-            .CreateGauge("dicomviewer_db_latency_ms", "Database query latency in milliseconds.");
-
-        // PACS Metrics
-        private static readonly Gauge DicomViewerPacsConnected = Metrics
-            .CreateGauge("dicomviewer_pacs_connected", "PACS node connectivity status (1 if connected, 0 if not).", "aetitle");
-
-        // License Metrics
-        private static readonly Gauge DicomViewerLicenseValid = Metrics
-            .CreateGauge("dicomviewer_license_valid", "License validity status (1 if valid, 0 if invalid).");
-        private static readonly Gauge DicomViewerLicenseDaysUntilExpiry = Metrics
-            .CreateGauge("dicomviewer_license_days_until_expiry", "Number of days until license expiry.");
-
-        // System Error Metrics
-        private static readonly Gauge DicomViewerCriticalErrorCount24h = Metrics
-            .CreateGauge("dicomviewer_critical_error_count_24h", "Number of critical errors in the last 24 hours.");
-        private static readonly Gauge DicomViewerErrorTypeCount = Metrics
-            .CreateGauge("dicomviewer_error_type_count_24h", "Count of specific error types in the last 24 hours.", "error_type");
-            
-        // Automated Task Metrics
-        private static readonly Gauge DicomViewerAutomatedTaskStatus = Metrics
-            .CreateGauge("dicomviewer_automated_task_status", "Status of automated tasks (1 for success, 0 for failure, 2 for running, 3 for unknown).", "task_name");
-        private static readonly Gauge DicomViewerAutomatedTaskLastRunTimestamp = Metrics
-            .CreateGauge("dicomviewer_automated_task_last_run_timestamp_seconds", "Unix timestamp of the last run for an automated task.", "task_name");
-
-
-        // Alerting Metrics
-        private static readonly Counter DicomViewerAlertTriggeredTotal = Metrics
-            .CreateCounter("dicomviewer_alert_triggered_total", "Total number of alerts triggered.", "rule_name", "severity");
-        private static readonly Counter DicomViewerAlertDispatchedTotal = Metrics
-            .CreateCounter("dicomviewer_alert_dispatched_total", "Total number of alerts dispatched.", "rule_name", "severity", "channel_type");
-        private static readonly Counter DicomViewerAlertThrottledTotal = Metrics
-            .CreateCounter("dicomviewer_alert_throttled_total", "Total number of alerts throttled.", "rule_name", "severity");
-        private static readonly Counter DicomViewerAlertDeduplicatedTotal = Metrics
-            .CreateCounter("dicomviewer_alert_deduplicated_total", "Total number of alerts deduplicated.", "rule_name", "severity");
-
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="PrometheusMetricsCollector"/> class.
-        /// </summary>
-        /// <param name="logger">The logger instance.</param>
-        public PrometheusMetricsCollector(ILogger<PrometheusMetricsCollector> logger)
+    public void UpdateMetrics(HealthReportDto report)
+    {
+        if (report == null)
         {
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _logger.LogInformation("PrometheusMetricsCollector initialized.");
+            _logger.Warning("UpdateMetrics called with a null health report. Skipping metrics update.");
+            return;
         }
 
-        /// <summary>
-        /// Updates all relevant Prometheus metrics based on the provided <see cref="HealthReportDto"/>.
-        /// </summary>
-        /// <param name="report">The aggregated health report.</param>
-        public void UpdateMetrics(HealthReportDto report)
+        _logger.Debug("Updating Prometheus metrics with latest health report.");
+        try
         {
-            if (report == null)
+            // Overall Health Status
+            DicomViewerOverallHealthStatus.Set(report.OverallStatus switch
             {
-                _logger.LogWarning("Received null HealthReportDto. Skipping Prometheus metrics update.");
-                return;
-            }
+                "Healthy" => 0,
+                "Warning" => 1,
+                "Degraded" => 2,
+                "Error" => 3,
+                _ => 4 // Unknown
+            });
 
-            _logger.LogDebug("Updating Prometheus metrics from HealthReportDto timestamped {Timestamp}.", report.Timestamp);
-
-            DicomViewerSystemOverallStatus.Set((double)report.SystemStatus);
-
+            // Storage Info
             if (report.StorageInfo != null)
             {
-                UpdateStorageMetrics(report.StorageInfo);
-            }
-
-            if (report.DatabaseConnectivity != null)
-            {
-                UpdateDatabaseMetrics(report.DatabaseConnectivity);
-            }
-
-            if (report.PacsStatuses != null)
-            {
-                UpdatePacsMetrics(report.PacsStatuses);
-            }
-
-            if (report.LicenseStatus != null)
-            {
-                UpdateLicenseMetrics(report.LicenseStatus);
-            }
-
-            if (report.SystemErrorSummary != null)
-            {
-                UpdateSystemErrorMetrics(report.SystemErrorSummary);
-            }
-
-            if (report.AutomatedTaskStatuses != null)
-            {
-                UpdateAutomatedTaskMetrics(report.AutomatedTaskStatuses);
-            }
-            _logger.LogDebug("Prometheus metrics update complete.");
-        }
-
-        /// <summary>
-        /// Updates storage-related metrics.
-        /// </summary>
-        /// <param name="storageInfo">The storage health information.</param>
-        public void UpdateStorageMetrics(StorageHealthInfoDto storageInfo)
-        {
-            if (string.IsNullOrEmpty(storageInfo.Path))
-            {
-                _logger.LogWarning("Storage path is null or empty, cannot update path-specific storage metrics.");
-                return;
-            }
-            DicomViewerStorageFreeBytes.WithLabels(storageInfo.Path).Set(storageInfo.FreeSpaceBytes);
-            DicomViewerStorageTotalCapacityBytes.WithLabels(storageInfo.Path).Set(storageInfo.TotalCapacityBytes);
-            DicomViewerStorageUsedPercentage.WithLabels(storageInfo.Path).Set(storageInfo.UsedPercentage);
-        }
-
-        /// <summary>
-        /// Updates database connectivity metrics.
-        /// </summary>
-        /// <param name="dbInfo">The database connectivity information.</param>
-        public void UpdateDatabaseMetrics(DatabaseConnectivityInfoDto dbInfo)
-        {
-            DicomViewerDbConnected.Set(dbInfo.IsConnected ? 1 : 0);
-            if (dbInfo.LatencyMs.HasValue)
-            {
-                DicomViewerDbLatencyMs.Set(dbInfo.LatencyMs.Value);
+                string storageId = report.StorageInfo.StorageIdentifier ?? "default";
+                DicomViewerStorageTotalBytes.WithLabels(storageId).Set(report.StorageInfo.TotalCapacityBytes);
+                DicomViewerStorageFreeBytes.WithLabels(storageId).Set(report.StorageInfo.FreeSpaceBytes);
+                DicomViewerStorageUsedRatio.WithLabels(storageId).Set(report.StorageInfo.TotalCapacityBytes > 0 ? (double)(report.StorageInfo.TotalCapacityBytes - report.StorageInfo.FreeSpaceBytes) / report.StorageInfo.TotalCapacityBytes : 0);
             }
             else
             {
-                 DicomViewerDbLatencyMs.Set(0); // Or some indicator for unknown latency
+                _logger.Debug("Storage health info missing in report for metrics update. Metrics may not be set or may become stale.");
+                // Consider setting to NaN or specific values if a source is explicitly unavailable
+                 // DicomViewerStorageTotalBytes.WithLabels("default").Set(double.NaN); // Example for missing data
             }
-        }
 
-        /// <summary>
-        /// Updates PACS connectivity metrics.
-        /// </summary>
-        /// <param name="pacsStatuses">A list of PACS connection information.</param>
-        public void UpdatePacsMetrics(IEnumerable<PacsConnectionInfoDto> pacsStatuses)
-        {
-            // Clear old labels if PACS nodes can change dynamically.
-            // For simplicity, this example assumes a relatively static set of PACS nodes or that unreferenced labels will eventually expire.
-            // Prometheus.Client has some mechanisms for this, or one might need to track active labels.
-            // DicomViewerPacsConnected.Reset(); // This clears all labels, might not be ideal if some PACS are still valid.
-
-            foreach (var pacs in pacsStatuses)
+            // Database Connectivity
+            if (report.DatabaseConnectivity != null)
             {
-                if (string.IsNullOrEmpty(pacs.PacsNodeId))
-                {
-                     _logger.LogWarning("PACS Node ID is null or empty, cannot update PACS connectivity metric for this node.");
-                    continue;
-                }
-                DicomViewerPacsConnected.WithLabels(pacs.PacsNodeId).Set(pacs.IsConnected ? 1 : 0);
+                DicomViewerDatabaseConnectedStatus.Set(report.DatabaseConnectivity.IsConnected ? 1 : 0);
+                DicomViewerDatabaseLatencySeconds.Set(report.DatabaseConnectivity.LatencyMs.HasValue ? report.DatabaseConnectivity.LatencyMs.Value / 1000.0 : -1); // -1 if no latency
             }
-        }
-
-        /// <summary>
-        /// Updates license status metrics.
-        /// </summary>
-        /// <param name="licenseInfo">The license status information.</param>
-        public void UpdateLicenseMetrics(LicenseStatusInfoDto licenseInfo)
-        {
-            DicomViewerLicenseValid.Set(licenseInfo.IsValid ? 1 : 0);
-            DicomViewerLicenseDaysUntilExpiry.Set(licenseInfo.DaysUntilExpiry ?? -1); // -1 for N/A
-        }
-        
-        /// <summary>
-        /// Updates system error summary metrics.
-        /// </summary>
-        /// <param name="errorSummary">The system error summary information.</param>
-        public void UpdateSystemErrorMetrics(SystemErrorInfoSummaryDto errorSummary)
-        {
-            DicomViewerCriticalErrorCount24h.Set(errorSummary.CriticalErrorCountLast24Hours);
-            if (errorSummary.ErrorTypeSummaries != null)
+            else
             {
-                // Consider clearing old error type labels if they are dynamic
-                // DicomViewerErrorTypeCount.Reset(); 
-                foreach (var summary in errorSummary.ErrorTypeSummaries)
+                 _logger.Debug("Database connectivity info missing in report. Metrics may become stale.");
+                 // DicomViewerDatabaseConnectedStatus.Set(double.NaN);
+            }
+
+            // PACS Connections
+            // To handle removed PACS nodes, we might need a list of all *configured* nodes.
+            // For now, only update reported ones. Stale metrics for removed nodes can be an issue.
+            // One strategy: unpublish metrics for nodes not in the current report if we know all configured nodes.
+            if (report.PacsConnections != null)
+            {
+                foreach (var pacs in report.PacsConnections)
                 {
-                    if(string.IsNullOrEmpty(summary.Type)) continue;
-                    DicomViewerErrorTypeCount.WithLabels(summary.Type).Set(summary.Count);
+                    if (!string.IsNullOrEmpty(pacs.PacsNodeId))
+                    {
+                        DicomViewerPacsNodeConnectedStatus.WithLabels(pacs.PacsNodeId).Set(pacs.IsConnected ? 1 : 0);
+                    }
                 }
             }
-        }
-
-        /// <summary>
-        /// Updates automated task status metrics.
-        /// </summary>
-        /// <param name="taskStatuses">A list of automated task status information.</param>
-        public void UpdateAutomatedTaskMetrics(IEnumerable<AutomatedTaskStatusInfoDto> taskStatuses)
-        {
-            // Consider clearing old task labels if tasks are dynamic
-            // DicomViewerAutomatedTaskStatus.Reset();
-            // DicomViewerAutomatedTaskLastRunTimestamp.Reset();
-            foreach (var task in taskStatuses)
+            else
             {
-                if(string.IsNullOrEmpty(task.TaskName)) continue;
+                _logger.Debug("PACS connections info missing in report. Metrics may become stale.");
+            }
 
-                double statusValue = task.LastRunStatus?.ToLowerInvariant() switch
-                {
-                    "success" => 1,
-                    "failed" => 0,
-                    "running" => 2,
-                    _ => 3 // Unknown
-                };
-                DicomViewerAutomatedTaskStatus.WithLabels(task.TaskName).Set(statusValue);
 
-                if (task.LastRunTimestamp.HasValue)
+            // License Status
+            if (report.LicenseStatus != null)
+            {
+                DicomViewerLicenseValidStatus.Set(report.LicenseStatus.IsValid ? 1 : 0);
+                DicomViewerLicenseDaysUntilExpiry.Set(report.LicenseStatus.DaysUntilExpiry ?? -1);
+            }
+            else
+            {
+                 _logger.Debug("License status info missing in report. Metrics may become stale.");
+                 // DicomViewerLicenseValidStatus.Set(double.NaN);
+            }
+
+
+            // System Error Summary
+            if (report.SystemErrorSummary != null)
+            {
+                DicomViewerCriticalErrorCount.Set(report.SystemErrorSummary.CriticalErrorCountLast24Hours);
+            }
+            else
+            {
+                 _logger.Debug("System error summary info missing in report. Metrics may become stale.");
+                 // DicomViewerCriticalErrorCount.Set(double.NaN);
+            }
+
+            // Automated Task Statuses
+            if (report.AutomatedTaskStatuses != null)
+            {
+                foreach (var task in report.AutomatedTaskStatuses)
                 {
-                    DicomViewerAutomatedTaskLastRunTimestamp.WithLabels(task.TaskName).Set(task.LastRunTimestamp.Value.ToUnixTimeSeconds());
+                    if (!string.IsNullOrEmpty(task.TaskName))
+                    {
+                        DicomViewerAutomatedTaskLastRunStatus.WithLabels(task.TaskName).Set(task.LastRunStatus switch
+                        {
+                            "Success" => 1,
+                            "Failed" => 0,
+                            "Running" => 2,
+                            _ => 3 // Unknown/Skipped
+                        });
+                        if (task.LastRunTimestamp.HasValue)
+                        {
+                            DicomViewerAutomatedTaskLastRunTimestampSeconds.WithLabels(task.TaskName).Set(task.LastRunTimestamp.Value.ToUnixTimeSeconds());
+                        }
+                    }
                 }
             }
-        }
+            else
+            {
+                _logger.Debug("Automated task statuses info missing in report. Metrics may become stale.");
+            }
 
-        /// <summary>
-        /// Increments the counter for triggered alerts.
-        /// </summary>
-        /// <param name="ruleName">The name of the triggered rule.</param>
-        /// <param name="severity">The severity of the alert.</param>
-        public void IncrementAlertTriggered(string ruleName, string severity)
-        {
-            DicomViewerAlertTriggeredTotal.WithLabels(ruleName, severity).Inc();
+            _logger.Debug("Prometheus metrics update process finished.");
         }
-
-        /// <summary>
-        /// Increments the counter for dispatched alerts.
-        /// </summary>
-        /// <param name="ruleName">The name of the rule for the dispatched alert.</param>
-        /// <param name="severity">The severity of the alert.</param>
-        /// <param name="channelType">The type of channel the alert was dispatched through.</param>
-        public void IncrementAlertDispatched(string ruleName, string severity, string channelType)
+        catch (Exception ex)
         {
-            DicomViewerAlertDispatchedTotal.WithLabels(ruleName, severity, channelType).Inc();
-        }
-
-        /// <summary>
-        /// Increments the counter for throttled alerts.
-        /// </summary>
-        /// <param name="ruleName">The name of the rule for the throttled alert.</param>
-        /// <param name="severity">The severity of the alert.</param>
-        public void IncrementAlertThrottled(string ruleName, string severity)
-        {
-            DicomViewerAlertThrottledTotal.WithLabels(ruleName, severity).Inc();
-        }
-
-        /// <summary>
-        /// Increments the counter for deduplicated alerts.
-        /// </summary>
-        /// <param name="ruleName">The name of the rule for the deduplicated alert.</param>
-        /// <param name="severity">The severity of the alert.</param>
-        public void IncrementAlertDeduplicated(string ruleName, string severity)
-        {
-            DicomViewerAlertDeduplicatedTotal.WithLabels(ruleName, severity).Inc();
+            _logger.Error(ex, "An unexpected error occurred while updating Prometheus metrics.");
+            // Do not re-throw; metrics collection failure should not stop monitoring.
         }
     }
 }
-```

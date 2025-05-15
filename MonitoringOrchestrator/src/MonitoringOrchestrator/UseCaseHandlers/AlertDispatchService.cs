@@ -1,5 +1,3 @@
-```csharp
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TheSSS.DICOMViewer.Monitoring.Configuration;
 using TheSSS.DICOMViewer.Monitoring.Contracts;
@@ -7,209 +5,209 @@ using TheSSS.DICOMViewer.Monitoring.Exceptions;
 using TheSSS.DICOMViewer.Monitoring.Interfaces;
 using TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
 using TheSSS.DICOMViewer.Monitoring.Mappers;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers
+namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers;
+
+public class AlertDispatchService
 {
-    /// <summary>
-    /// Service responsible for dispatching alerts. Manages alert throttling, 
-    /// deduplication, and routing to appropriate alerting channels.
-    /// </summary>
-    public class AlertDispatchService
-    {
-        private readonly IEnumerable<IAlertingChannel> _alertingChannels;
-        private readonly IAlertThrottlingStrategy _throttlingStrategy;
-        private readonly IAlertDeduplicationStrategy _deduplicationStrategy;
-        private readonly IAuditLoggingAdapter _auditLoggingAdapter;
-        private readonly ILogger<AlertDispatchService> _logger;
-        private readonly IOptions<AlertingOptions> _alertingOptions;
+    private readonly ILoggerAdapter<AlertDispatchService> _logger;
+    private readonly AlertingOptions _alertingOptions;
+    private readonly IAlertThrottlingStrategy _throttlingStrategy;
+    private readonly IAlertDeduplicationStrategy _deduplicationStrategy;
+    private readonly IEnumerable<IAlertingChannel> _alertingChannels;
+    private readonly IAuditLoggingAdapter _auditLoggingAdapter;
+    private readonly HealthReportMapper _mapper;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AlertDispatchService"/> class.
-        /// </summary>
-        /// <param name="alertingChannels">An enumerable collection of alerting channel implementations.</param>
-        /// <param name="throttlingStrategy">The alert throttling strategy.</param>
-        /// <param name="deduplicationStrategy">The alert deduplication strategy.</param>
-        /// <param name="auditLoggingAdapter">The adapter for logging audit events.</param>
-        /// <param name="logger">The logger instance.</param>
-        /// <param name="alertingOptions">The alerting configuration options.</param>
-        public AlertDispatchService(
-            IEnumerable<IAlertingChannel> alertingChannels,
-            IAlertThrottlingStrategy throttlingStrategy,
-            IAlertDeduplicationStrategy deduplicationStrategy,
-            IAuditLoggingAdapter auditLoggingAdapter,
-            ILogger<AlertDispatchService> logger,
-            IOptions<AlertingOptions> alertingOptions)
+    public AlertDispatchService(
+        ILoggerAdapter<AlertDispatchService> logger,
+        IOptions<AlertingOptions> alertingOptions,
+        IAlertThrottlingStrategy throttlingStrategy,
+        IAlertDeduplicationStrategy deduplicationStrategy,
+        IEnumerable<IAlertingChannel> alertingChannels,
+        IAuditLoggingAdapter auditLoggingAdapter,
+        HealthReportMapper mapper)
+    {
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _alertingOptions = alertingOptions?.Value ?? throw new ArgumentNullException(nameof(alertingOptions));
+        _throttlingStrategy = throttlingStrategy ?? throw new ArgumentNullException(nameof(throttlingStrategy));
+        _deduplicationStrategy = deduplicationStrategy ?? throw new ArgumentNullException(nameof(deduplicationStrategy));
+        _alertingChannels = alertingChannels ?? throw new ArgumentNullException(nameof(alertingChannels));
+        _auditLoggingAdapter = auditLoggingAdapter ?? throw new ArgumentNullException(nameof(auditLoggingAdapter));
+        _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
+    }
+
+    public async Task DispatchAlertAsync(AlertContextDto alertContext, CancellationToken cancellationToken)
+    {
+        if (alertContext == null)
         {
-            _alertingChannels = alertingChannels ?? throw new ArgumentNullException(nameof(alertingChannels));
-            _throttlingStrategy = throttlingStrategy ?? throw new ArgumentNullException(nameof(throttlingStrategy));
-            _deduplicationStrategy = deduplicationStrategy ?? throw new ArgumentNullException(nameof(deduplicationStrategy));
-            _auditLoggingAdapter = auditLoggingAdapter ?? throw new ArgumentNullException(nameof(auditLoggingAdapter));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _alertingOptions = alertingOptions ?? throw new ArgumentNullException(nameof(alertingOptions));
+            _logger.Error("DispatchAlertAsync called with null alertContext.");
+            throw new ArgumentNullException(nameof(alertContext));
         }
 
-        /// <summary>
-        /// Asynchronously dispatches an alert after applying deduplication and throttling strategies.
-        /// </summary>
-        /// <param name="alertContext">The context of the alert to dispatch.</param>
-        /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-        /// <returns>A task that represents the asynchronous operation.</returns>
-        public async Task DispatchAlertAsync(AlertContextDto alertContext, CancellationToken cancellationToken)
+        _logger.Info($"Received alert for rule '{alertContext.TriggeredRuleName}', severity '{alertContext.AlertSeverity}'. Evaluating dispatch.");
+
+        if (!_alertingOptions.IsEnabled)
         {
-            _logger.LogInformation("Attempting to dispatch alert for rule '{RuleName}', severity '{Severity}'.",
-                alertContext.TriggeredRuleName, alertContext.AlertSeverity);
-
+            _logger.Info("Alerting is globally disabled. Alert not dispatched.");
             await _auditLoggingAdapter.LogAuditEventAsync(
-                eventType: "AlertEvaluationTriggered",
-                eventDetails: $"Alert triggered for rule: {alertContext.TriggeredRuleName}, Severity: {alertContext.AlertSeverity}, Message: {alertContext.Message}",
-                outcome: "Success",
-                sourceComponent: alertContext.SourceComponent
-            );
+                eventType: "AlertDispatchSkipped",
+                eventDetails: $"Rule: {alertContext.TriggeredRuleName}, Message: {alertContext.Message}. Reason: Alerting globally disabled.",
+                outcome: "Skipped",
+                sourceComponent: nameof(AlertDispatchService));
+            return;
+        }
 
-            if (_alertingOptions.Value.Deduplication?.IsEnabled == true &&
-                await _deduplicationStrategy.IsDuplicateAsync(alertContext, cancellationToken))
+        // 1. Deduplication
+        if (_alertingOptions.Deduplication.IsEnabled)
+        {
+            if (await _deduplicationStrategy.IsDuplicateAsync(alertContext, cancellationToken))
             {
-                _logger.LogInformation("Alert for rule '{RuleName}' (Severity: {Severity}) was deduplicated.",
-                    alertContext.TriggeredRuleName, alertContext.AlertSeverity);
+                _logger.Info($"Alert for rule '{alertContext.TriggeredRuleName}' (Severity: {alertContext.AlertSeverity}) is a duplicate. Skipping dispatch.");
                 await _auditLoggingAdapter.LogAuditEventAsync(
                     eventType: "AlertDeduplicated",
-                    eventDetails: $"Alert for rule: {alertContext.TriggeredRuleName} was deduplicated.",
-                    outcome: "Success",
-                    sourceComponent: alertContext.SourceComponent
-                );
+                    eventDetails: $"Rule: {alertContext.TriggeredRuleName}, Severity: {alertContext.AlertSeverity}, Message: {alertContext.Message}",
+                    outcome: "Skipped",
+                    sourceComponent: nameof(AlertDispatchService));
                 return;
             }
+            _logger.Debug($"Alert for rule '{alertContext.TriggeredRuleName}' not a duplicate.");
+        }
 
-            if (_alertingOptions.Value.Throttling?.IsEnabled == true &&
-                await _throttlingStrategy.ShouldThrottleAsync(alertContext, cancellationToken))
+        // 2. Throttling
+        if (_alertingOptions.Throttling.IsEnabled)
+        {
+            if (await _throttlingStrategy.ShouldThrottleAsync(alertContext, cancellationToken))
             {
-                _logger.LogInformation("Alert for rule '{RuleName}' (Severity: {Severity}) was throttled.",
-                    alertContext.TriggeredRuleName, alertContext.AlertSeverity);
+                _logger.Info($"Alert for rule '{alertContext.TriggeredRuleName}' (Severity: {alertContext.AlertSeverity}) is throttled. Skipping dispatch.");
                 await _auditLoggingAdapter.LogAuditEventAsync(
                     eventType: "AlertThrottled",
-                    eventDetails: $"Alert for rule: {alertContext.TriggeredRuleName} was throttled.",
-                    outcome: "Success",
-                    sourceComponent: alertContext.SourceComponent
-                );
+                    eventDetails: $"Rule: {alertContext.TriggeredRuleName}, Severity: {alertContext.AlertSeverity}, Message: {alertContext.Message}",
+                    outcome: "Skipped",
+                    sourceComponent: nameof(AlertDispatchService));
                 return;
             }
-
-            NotificationPayloadDto payload = HealthReportMapper.ToNotificationPayload(alertContext);
-
-            var enabledChannelsSettings = _alertingOptions.Value.Channels?
-                .Where(c => c.IsEnabled && IsSeverityMatch(alertContext.AlertSeverity, c.MinimumSeverity))
-                .ToList() ?? new List<AlertChannelSetting>();
-
-            if (!enabledChannelsSettings.Any())
-            {
-                _logger.LogWarning("No enabled alert channels found or match severity for alert '{RuleName}'.", alertContext.TriggeredRuleName);
-                await _auditLoggingAdapter.LogAuditEventAsync(
-                     eventType: "AlertDispatchSkipped",
-                     eventDetails: $"No enabled channels for alert: {alertContext.TriggeredRuleName}, Severity: {alertContext.AlertSeverity}",
-                     outcome: "Warning",
-                     sourceComponent: alertContext.SourceComponent);
-                return;
-            }
-
-            int successfulDispatches = 0;
-            foreach (var channelSetting in enabledChannelsSettings)
-            {
-                var channelImplementation = _alertingChannels
-                    .FirstOrDefault(ch => ch.GetType().Name.StartsWith(channelSetting.ChannelType, StringComparison.OrdinalIgnoreCase));
-
-                if (channelImplementation == null)
-                {
-                    _logger.LogWarning("No matching IAlertingChannel implementation found for configured ChannelType '{ChannelType}'.",
-                        channelSetting.ChannelType);
-                    await _auditLoggingAdapter.LogAuditEventAsync(
-                        eventType: "AlertDispatchChannelNotFound",
-                        eventDetails: $"Channel implementation not found for type: {channelSetting.ChannelType}",
-                        outcome: "Failure",
-                        sourceComponent: alertContext.SourceComponent);
-                    continue;
-                }
-                
-                // Pass recipient details if available and relevant for the channel (e.g. Email)
-                payload.RecipientDetails = channelSetting.RecipientEmailAddresses;
-                payload.TargetChannelType = channelSetting.ChannelType;
-
-
-                try
-                {
-                    _logger.LogInformation("Dispatching alert '{RuleName}' via channel '{ChannelType}'.",
-                        alertContext.TriggeredRuleName, channelSetting.ChannelType);
-                    await channelImplementation.DispatchAlertAsync(payload, cancellationToken);
-                    _logger.LogInformation("Successfully dispatched alert '{RuleName}' via channel '{ChannelType}'.",
-                        alertContext.TriggeredRuleName, channelSetting.ChannelType);
-
-                    await _auditLoggingAdapter.LogAuditEventAsync(
-                        eventType: $"AlertDispatchedVia{channelSetting.ChannelType}",
-                        eventDetails: $"Alert for rule: {alertContext.TriggeredRuleName} dispatched via {channelSetting.ChannelType}.",
-                        outcome: "Success",
-                        sourceComponent: alertContext.SourceComponent
-                    );
-                    successfulDispatches++;
-                }
-                catch (AlertingSystemException ex)
-                {
-                    _logger.LogError(ex, "Failed to dispatch alert '{RuleName}' via channel '{ChannelType}'. AlertingSystemException.",
-                        alertContext.TriggeredRuleName, channelSetting.ChannelType);
-                    await _auditLoggingAdapter.LogAuditEventAsync(
-                        eventType: $"AlertDispatchFailedVia{channelSetting.ChannelType}",
-                        eventDetails: $"Failed to dispatch alert for rule: {alertContext.TriggeredRuleName} via {channelSetting.ChannelType}. Error: {ex.Message}",
-                        outcome: "Failure",
-                        sourceComponent: alertContext.SourceComponent);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "An unexpected error occurred while dispatching alert '{RuleName}' via channel '{ChannelType}'.",
-                        alertContext.TriggeredRuleName, channelSetting.ChannelType);
-                     await _auditLoggingAdapter.LogAuditEventAsync(
-                        eventType: $"AlertDispatchErrorVia{channelSetting.ChannelType}",
-                        eventDetails: $"Unexpected error dispatching alert for rule: {alertContext.TriggeredRuleName} via {channelSetting.ChannelType}. Error: {ex.Message}",
-                        outcome: "Failure",
-                        sourceComponent: alertContext.SourceComponent);
-                }
-            }
-
-            await _auditLoggingAdapter.LogAuditEventAsync(
-                eventType: "AlertDispatchCompleted",
-                eventDetails: $"Alert dispatch process completed for rule: {alertContext.TriggeredRuleName}. Successful dispatches: {successfulDispatches}/{enabledChannelsSettings.Count}",
-                outcome: successfulDispatches > 0 ? "PartialSuccess" : "Failure", // Or Success if all succeeded
-                sourceComponent: alertContext.SourceComponent);
+            _logger.Debug($"Alert for rule '{alertContext.TriggeredRuleName}' not throttled.");
         }
-        
-        private bool IsSeverityMatch(string alertSeverity, string? minimumChannelSeverity)
+
+        _logger.Info($"Proceeding to dispatch alert for rule '{alertContext.TriggeredRuleName}', severity '{alertContext.AlertSeverity}'.");
+
+        var enabledChannelsSettings = _alertingOptions.Channels?
+            .Where(c => c.IsEnabled && IsSeveritySufficient(alertContext.AlertSeverity, c.MinimumSeverity))
+            .ToList() ?? new List<AlertChannelSetting>();
+
+        if (!enabledChannelsSettings.Any())
         {
-            if (string.IsNullOrEmpty(minimumChannelSeverity))
+            _logger.Warning($"No enabled alerting channels configured for severity '{alertContext.AlertSeverity}' or at all. Alert for rule '{alertContext.TriggeredRuleName}' not dispatched.");
+            await _auditLoggingAdapter.LogAuditEventAsync(
+               eventType: "AlertDispatchFailed",
+               eventDetails: $"Rule: {alertContext.TriggeredRuleName}, Message: {alertContext.Message}. Reason: No enabled channels for severity '{alertContext.AlertSeverity}'.",
+               outcome: "Failure",
+               sourceComponent: nameof(AlertDispatchService));
+            return;
+        }
+
+        var notificationPayload = _mapper.ToNotificationPayload(alertContext);
+        var dispatchTasks = new List<Task>();
+
+        foreach (var channelSetting in enabledChannelsSettings)
+        {
+            var channelImplementation = _alertingChannels.FirstOrDefault(
+                impl => impl.GetType().Name.Equals(channelSetting.ChannelType + "AlertingChannel", StringComparison.OrdinalIgnoreCase));
+
+            if (channelImplementation != null)
             {
-                return true; // No minimum severity specified for the channel, so all alerts pass
+                _logger.Debug($"Preparing to dispatch alert via channel: {channelSetting.ChannelType}.");
+                
+                // Clone or create a new payload to avoid shared state issues if channels modify it, though they shouldn't.
+                var channelSpecificPayload = new NotificationPayloadDto
+                {
+                    Title = notificationPayload.Title,
+                    Body = notificationPayload.Body,
+                    Severity = notificationPayload.Severity,
+                    Timestamp = notificationPayload.Timestamp,
+                    CorrelationId = notificationPayload.CorrelationId,
+                    TargetChannelType = channelSetting.ChannelType,
+                };
+
+                if (channelSetting.ChannelType.Equals("Email", StringComparison.OrdinalIgnoreCase))
+                {
+                    channelSpecificPayload.RecipientDetails = channelSetting.RecipientEmailAddresses;
+                }
+                // Add other channel-specific recipient details if necessary
+
+                dispatchTasks.Add(DispatchToChannelAsync(channelImplementation, channelSpecificPayload, alertContext, cancellationToken));
             }
-
-            // Define severity levels. Lower value means lower severity.
-            var severityLevels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            else
             {
-                { "Information", 1 },
-                { "Warning", 2 },
-                { "Error", 3 },
-                { "Critical", 4 }
-            };
-
-            if (severityLevels.TryGetValue(alertSeverity, out int alertLevel) &&
-                severityLevels.TryGetValue(minimumChannelSeverity, out int channelMinLevel))
-            {
-                return alertLevel >= channelMinLevel;
+                _logger.Warning($"No implementation found for configured and enabled channel type: {channelSetting.ChannelType}. Rule: '{alertContext.TriggeredRuleName}'.");
+                await _auditLoggingAdapter.LogAuditEventAsync(
+                   eventType: "AlertDispatchFailed",
+                   eventDetails: $"Rule: {alertContext.TriggeredRuleName}. Reason: No implementation for channel type '{channelSetting.ChannelType}'.",
+                   outcome: "ConfigurationError",
+                   sourceComponent: nameof(AlertDispatchService));
             }
+        }
 
-            _logger.LogWarning("Unknown severity levels for comparison: Alert Severity '{AlertSeverity}', Channel Minimum Severity '{ChannelMinSeverity}'. Assuming no match.",
-                alertSeverity, minimumChannelSeverity);
-            return false; // Default to no match if severities are unrecognized
+        await Task.WhenAll(dispatchTasks);
+        _logger.Info($"Alert dispatch process completed for rule '{alertContext.TriggeredRuleName}'. Dispatched to {dispatchTasks.Count} channels.");
+    }
+
+    private bool IsSeveritySufficient(string alertSeverity, string channelMinimumSeverity)
+    {
+        // Assuming severities are "Info", "Warning", "Critical" or similar ordinal values
+        var severityOrder = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Info", 0 },
+            { "Information", 0 },
+            { "Debug", -1 }, // Lower than Info
+            { "Warning", 1 },
+            { "Error", 2 },
+            { "Critical", 3 },
+            { "Fatal", 3 }
+        };
+
+        if (severityOrder.TryGetValue(alertSeverity, out int alertLevel) &&
+            severityOrder.TryGetValue(channelMinimumSeverity, out int channelLevel))
+        {
+            return alertLevel >= channelLevel;
+        }
+        _logger.Warning($"Could not compare severities: Alert='{alertSeverity}', ChannelMin='{channelMinimumSeverity}'. Assuming sufficient.");
+        return true; // Default to true if severities are unknown, to avoid missing alerts due to misconfiguration
+    }
+
+    private async Task DispatchToChannelAsync(
+        IAlertingChannel channel,
+        NotificationPayloadDto payload,
+        AlertContextDto alertContext, // Pass original context for richer logging
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await channel.DispatchAlertAsync(payload, cancellationToken);
+            _logger.Info($"Successfully dispatched alert for rule '{alertContext.TriggeredRuleName}' via {payload.TargetChannelType} channel.");
+            await _auditLoggingAdapter.LogAuditEventAsync(
+                eventType: "AlertDispatched",
+                eventDetails: $"Rule: {alertContext.TriggeredRuleName}, Severity: {alertContext.AlertSeverity}, Channel: {payload.TargetChannelType}, Message: {alertContext.Message}",
+                outcome: "Success",
+                sourceComponent: nameof(AlertDispatchService));
+        }
+        catch (AlertingSystemException ex)
+        {
+            _logger.Error(ex, $"AlertingSystemException while dispatching alert for rule '{alertContext.TriggeredRuleName}' via {payload.TargetChannelType} channel.");
+            await _auditLoggingAdapter.LogAuditEventAsync(
+                eventType: "AlertDispatchFailed",
+                eventDetails: $"Rule: {alertContext.TriggeredRuleName}, Severity: {alertContext.AlertSeverity}, Channel: {payload.TargetChannelType}, Error: {ex.Message}, Message: {alertContext.Message}",
+                outcome: "Failure",
+                sourceComponent: nameof(AlertDispatchService));
+        }
+        catch (Exception ex) // Catch any other unexpected errors
+        {
+            _logger.Error(ex, $"Unexpected error while dispatching alert for rule '{alertContext.TriggeredRuleName}' via {payload.TargetChannelType} channel.");
+            await _auditLoggingAdapter.LogAuditEventAsync(
+                eventType: "AlertDispatchFailed",
+                eventDetails: $"Rule: {alertContext.TriggeredRuleName}, Severity: {alertContext.AlertSeverity}, Channel: {payload.TargetChannelType}, Unexpected Error: {ex.Message}, Message: {alertContext.Message}",
+                outcome: "Failure",
+                sourceComponent: nameof(AlertDispatchService));
         }
     }
 }
-```
