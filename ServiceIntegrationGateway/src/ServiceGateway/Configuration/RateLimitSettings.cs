@@ -1,42 +1,64 @@
+using System;
 using System.Collections.Generic;
-using System.Threading.RateLimiting;
 
 namespace TheSSS.DICOMViewer.Integration.Configuration
 {
     /// <summary>
     /// Configuration settings for API rate limiting policies.
-    /// Allows different limits for different services or operations, defined by requests per time window.
+    /// Allows defining different rate limits for different services or operations.
     /// </summary>
     public class RateLimitSettings
     {
-        public Dictionary<string, ResourceRateLimitSetting> Resources { get; set; } = new();
+        /// <summary>
+        /// Specifies if rate limiting is enabled globally for the gateway.
+        /// </summary>
+        public bool Enabled { get; set; } = true;
+
+        /// <summary>
+        /// Dictionary of specific rate limit configurations.
+        /// The key is a resource identifier (e.g., "OdooApi", "DicomCStorePerPeerX").
+        /// </summary>
+        public Dictionary<string, RateLimiterConfig> Limiters { get; set; } = new Dictionary<string, RateLimiterConfig>();
     }
 
-    public class ResourceRateLimitSetting
+    /// <summary>
+    /// Configuration for a single rate limiter.
+    /// </summary>
+    public class RateLimiterConfig
     {
-        public RateLimiterType LimiterType { get; set; } = RateLimiterType.FixedWindow;
-        public int PermitLimit { get; set; } = 100; // e.g., Tokens for TokenBucket, Permits for FixedWindow
-        public int WindowSeconds { get; set; } = 60; // Replenishment period for TokenBucket, Window for FixedWindow
-        
-        // For TokenBucket
-        public int TokensPerPeriod { get; set; } = 100;
-        public int QueueLimit { get; set; } = 0; // Max number of permits to queue
-        public QueueProcessingOrder QueueProcessingOrder { get; set; } = QueueProcessingOrder.OldestFirst;
-        
-        // For FixedWindow / SlidingWindow
-        public int SegmentsPerWindow { get; set; } = 1; // For SlidingWindow
-        
-        // For ConcurrencyLimiter
-        // PermitLimit can be used as MaxConcurrentRequests
+        /// <summary>
+        /// The type of rate limiter to use.
+        /// Supported types: "FixedWindow", "SlidingWindow", "TokenBucket", "Concurrency".
+        /// </summary>
+        public string Type { get; set; } = "TokenBucket";
 
-        public bool AutoReplenishment { get; set; } = true; // For TokenBucket
-    }
+        /// <summary>
+        /// The maximum number of permits (requests) allowed in a given window or replenished.
+        /// </summary>
+        public int PermitLimit { get; set; } = 100;
 
-    public enum RateLimiterType
-    {
-        FixedWindow,
-        SlidingWindow,
-        TokenBucket,
-        Concurrency
+        /// <summary>
+        /// The time window for FixedWindow or SlidingWindow, or replenishment period for TokenBucket.
+        /// Format: "00:01:00" for 1 minute.
+        /// </summary>
+        public TimeSpan Window { get; set; } = TimeSpan.FromMinutes(1);
+
+        /// <summary>
+        /// For TokenBucket: The number of tokens added per replenishment period (Window).
+        /// For SlidingWindow: The number of segments in the window.
+        /// </summary>
+        public int? TokensPerPeriodOrSegments { get; set; }
+
+        /// <summary>
+        /// The maximum number of permits that can be queued if the limit is hit.
+        /// 0 means no queueing (requests fail immediately or are rejected).
+        /// </summary>
+        public int QueueLimit { get; set; } = 0;
+
+        /// <summary>
+        /// How to process queued requests: "OldestFirst" or "NewestFirst".
+        /// Applies if QueueLimit > 0.
+        /// </summary>
+        public string QueueProcessingOrder { get; set; } = "OldestFirst"; // OldestFirst, NewestFirst
     }
 }

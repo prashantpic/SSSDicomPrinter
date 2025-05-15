@@ -1,36 +1,58 @@
 using System;
 using System.Collections.Generic;
-using System.Text.Json.Serialization;
+using System.Text.Json.Serialization; // For JsonPropertyName if needed for mapping
 
 namespace TheSSS.DICOMViewer.Integration.Models
 {
     /// <summary>
     /// Data Transfer Object for Odoo license validation responses, received by OdooApiAdapter.
-    /// Represents the data structure received from the Odoo API after a license validation attempt.
-    /// This is a general representation; actual fields depend on Odoo's specific API response.
+    /// Represents the expected structure of the successful API response body from Odoo.
+    /// Corresponds to REQ-LDM-LIC-004.
     /// </summary>
     public record OdooLicenseResponseDto
     {
+        /// <summary>
+        /// Indicates if the license key is valid according to Odoo.
+        /// </summary>
         [JsonPropertyName("is_valid")]
         public bool IsValid { get; init; }
 
+        /// <summary>
+        /// License expiry date, if applicable.
+        /// </summary>
         [JsonPropertyName("expiry_date")]
         public DateTime? ExpiryDate { get; init; }
 
-        [JsonPropertyName("enabled_features")]
-        public List<string>? EnabledFeatures { get; init; }
+        /// <summary>
+        /// List of features enabled by the license.
+        /// </summary>
+        [JsonPropertyName("features")]
+        public List<string>? Features { get; init; }
 
-        [JsonPropertyName("message")]
-        public string? Message { get; init; } // General message from Odoo
+        /// <summary>
+        /// A message from Odoo, especially if validation failed (e.g., "License expired", "Key not found").
+        /// This field is part of a successful API response that indicates a domain-level validation failure.
+        /// </summary>
+        [JsonPropertyName("status_message")]
+        public string? StatusMessage { get; init; }
 
+        /// <summary>
+        /// Odoo might return a specific error code even in a 200 OK response for domain errors.
+        /// </summary>
         [JsonPropertyName("error_code")]
-        public string? ErrorCode { get; init; } // Specific error code if validation failed
+        public string? ErrorCode { get; init; }
 
-        [JsonPropertyName("error_details")]
-        public string? ErrorDetails { get; init; } // More details about the error
+        // Parameterless constructor for deserialization
+        public OdooLicenseResponseDto() { }
 
-        // Catch-all for any other properties Odoo might send
-        [JsonExtensionData]
-        public Dictionary<string, object>? AdditionalData { get; init; }
+        // Constructor for manual creation (e.g., in tests)
+        public OdooLicenseResponseDto(bool isValid, DateTime? expiryDate, List<string>? features, string? statusMessage, string? errorCode = null)
+        {
+            IsValid = isValid;
+            ExpiryDate = expiryDate;
+            Features = features;
+            StatusMessage = statusMessage;
+            ErrorCode = errorCode;
+        }
     }
 }

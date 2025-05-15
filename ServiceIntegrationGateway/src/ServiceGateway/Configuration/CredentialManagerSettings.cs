@@ -1,31 +1,46 @@
+using System;
+
 namespace TheSSS.DICOMViewer.Integration.Configuration
 {
     /// <summary>
     /// Configuration settings for the ICredentialManager.
-    /// Specifies secure store type, connection details, or rotation policy parameters.
     /// </summary>
     public class CredentialManagerSettings
     {
         /// <summary>
-        /// Type of secure store being used (e.g., "EnvironmentVariables", "DpApiFile", "AzureKeyVault").
-        /// The actual implementation of ICredentialManager will interpret this.
+        /// The type of secure store to use for retrieving credentials.
+        /// Examples: "EnvironmentVariables", "AzureKeyVault", "HashiCorpVault", "DPAPI", "CustomSecureStore".
+        /// The actual implementation will depend on an ISecureStore interface from REPO-CROSS-CUTTING.
         /// </summary>
-        public string SecureStoreType { get; set; } = "EnvironmentVariables";
+        public string StoreType { get; set; } = "EnvironmentVariables";
 
         /// <summary>
-        /// Path or connection string for the secure store, if applicable (e.g., path to a DPAPI-protected file).
+        /// Path or connection string for the secure store, if applicable (e.g., KeyVault URI).
+        /// For "EnvironmentVariables", this might be a prefix for variable names.
         /// </summary>
-        public string? StoreLocation { get; set; }
+        public string SecureStorePathOrPrefix { get; set; } = string.Empty;
 
         /// <summary>
-        /// Prefix for environment variables if SecureStoreType is "EnvironmentVariables".
-        /// E.g., if Prefix is "SVC_GATEWAY_", then for service "OdooApi", username might be "SVC_GATEWAY_OdooApi_Username".
+        /// Specifies if credential caching is enabled within the CredentialManager.
         /// </summary>
-        public string? EnvironmentVariablePrefix { get; set; } = "DICOMVIEWER_INTEGRATION_";
+        public bool EnableCaching { get; set; } = true;
 
         /// <summary>
-        /// Duration in seconds to cache credentials in memory. Zero or negative means no caching.
+        /// Duration for which credentials should be cached if caching is enabled.
+        /// Format: "00:05:00" for 5 minutes.
         /// </summary>
-        public int CacheDurationSeconds { get; set; } = 300; // 5 minutes
+        public TimeSpan CacheDuration { get; set; } = TimeSpan.FromMinutes(5);
+
+        /// <summary>
+        /// If true, the CredentialManager might attempt to proactively refresh credentials
+        /// before they expire, if the underlying store supports such metadata.
+        /// </summary>
+        public bool EnableProactiveRotation { get; set; } = false;
+
+        /// <summary>
+        /// Interval for checking for credential rotation if EnableProactiveRotation is true.
+        /// Format: "01:00:00" for 1 hour.
+        /// </summary>
+        public TimeSpan RotationCheckInterval { get; set; } = TimeSpan.FromHours(1);
     }
 }

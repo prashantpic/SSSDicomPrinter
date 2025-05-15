@@ -1,23 +1,44 @@
+using System;
+
 namespace TheSSS.DICOMViewer.Integration.Configuration
 {
     /// <summary>
     /// Configuration settings for DICOM network operations managed or coordinated by the gateway.
-    /// Details retry policies, timeouts, and concurrency settings.
     /// </summary>
     public class DicomGatewaySettings
     {
-        public int DefaultOperationTimeoutSeconds { get; set; } = 60;
-        public int AssociationTimeoutSeconds { get; set; } = 30;
+        /// <summary>
+        /// Default timeout for individual DICOM operations (e.g., C-STORE, C-ECHO).
+        /// </summary>
+        public TimeSpan OperationTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
-        // Concurrency settings REQ-DNSPI-009 (can be used by RateLimiter or DicomNetworkAdapter logic)
-        public int MaxConcurrentCStoreOperations { get; set; } = 10;
-        public int MaxConcurrentCFindOperations { get; set; } = 5;
-        public int MaxConcurrentCMoveOperations { get; set; } = 5;
-        public int MaxConcurrentCEchoOperations { get; set; } = 10;
-        
-        // Default retry settings for DICOM operations (can be overridden by global ResilienceSettings if needed)
-        // These might be superseded or augmented by specific policies in ResilienceSettings.
-        // public int DefaultRetryCount { get; set; } = 3;
-        // public int DefaultRetryBackoffSeconds { get; set; } = 5;
+        /// <summary>
+        /// Default number of retries for transient DICOM network failures.
+        /// Used if a specific retry policy isn't defined for DICOM.
+        /// </summary>
+        public int DefaultRetryAttempts { get; set; } = 3;
+
+        /// <summary>
+        /// Maximum number of concurrent DICOM operations initiated by this gateway instance.
+        /// Helps prevent overwhelming the low-level DICOM client or network resources.
+        /// </summary>
+        public int MaxConcurrentClientOperations { get; set; } = 10;
+
+        /// <summary>
+        /// Identifier for the rate limiting policy specifically for DICOM operations, if any.
+        /// Example: "DicomNetworkRateLimit"
+        /// </summary>
+        public string RateLimitResourceKey { get; set; } = "DicomNetwork";
+
+        /// <summary>
+        /// Default Calling Application Entity Title (AE Title) for this gateway when initiating DICOM operations.
+        /// </summary>
+        public string DefaultCallingAeTitle { get; set; } = "SVC_GATEWAY";
+
+        /// <summary>
+        /// Default port number this gateway might listen on if it were to act as an SCP (not its primary role, but could be for C-MOVE responses).
+        /// Usually, for C-MOVE, the destination AE (this application) needs to be an SCP.
+        /// </summary>
+        public int DefaultScpPort { get; set; } = 11112; // Example port
     }
 }
