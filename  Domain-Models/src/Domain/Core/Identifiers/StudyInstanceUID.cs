@@ -1,22 +1,18 @@
-using TheSSS.DicomViewer.Domain.Exceptions;
+using System;
 
 namespace TheSSS.DicomViewer.Domain.Core.Identifiers
 {
-    public sealed record StudyInstanceUID
+    public record StudyInstanceUID(string Value)
     {
-        public string Value { get; }
-
-        public StudyInstanceUID(string value)
+        public StudyInstanceUID() : this(string.Empty) { }
+        
+        public static StudyInstanceUID Create(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
-                throw new DomainException("Study Instance UID cannot be empty");
-            
-            Value = value;
+                throw new ArgumentException("Study Instance UID cannot be empty");
+            return new StudyInstanceUID(value);
         }
-
-        public override string ToString() => Value;
         
-        public bool Equals(StudyInstanceUID? other) => other != null && Value == other.Value;
-        public override int GetHashCode() => Value.GetHashCode();
+        public override string ToString() => Value;
     }
 }

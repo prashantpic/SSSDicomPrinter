@@ -1,22 +1,18 @@
-using TheSSS.DicomViewer.Domain.Exceptions;
+using System;
 
 namespace TheSSS.DicomViewer.Domain.Core.Identifiers
 {
-    public sealed record PatientId
+    public record PatientId(string Value)
     {
-        public string Value { get; }
-
-        public PatientId(string value)
+        public PatientId() : this(string.Empty) { }
+        
+        public static PatientId Create(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
-                throw new DomainException("Patient ID cannot be empty");
-            
-            Value = value;
+                throw new ArgumentException("Patient ID cannot be empty");
+            return new PatientId(value);
         }
-
-        public override string ToString() => Value;
         
-        public bool Equals(PatientId? other) => other != null && Value == other.Value;
-        public override int GetHashCode() => Value.GetHashCode();
+        public override string ToString() => Value;
     }
 }

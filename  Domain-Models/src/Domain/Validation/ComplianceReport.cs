@@ -3,15 +3,8 @@ using System.Linq;
 
 namespace TheSSS.DicomViewer.Domain.Validation
 {
-    public sealed record ComplianceReport
+    public record ComplianceReport(IReadOnlyCollection<ComplianceIssue> Issues)
     {
-        public bool IsCompliant { get; }
-        public IReadOnlyCollection<ComplianceIssue> Issues { get; }
-
-        public ComplianceReport(bool isCompliant, IEnumerable<ComplianceIssue> issues)
-        {
-            IsCompliant = isCompliant;
-            Issues = (issues ?? Enumerable.Empty<ComplianceIssue>()).ToList().AsReadOnly();
-        }
+        public bool IsCompliant => !Issues.Any(i => i.Severity == IssueSeverity.Error);
     }
 }

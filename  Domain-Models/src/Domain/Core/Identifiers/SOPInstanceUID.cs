@@ -1,22 +1,18 @@
-using TheSSS.DicomViewer.Domain.Exceptions;
+using System;
 
 namespace TheSSS.DicomViewer.Domain.Core.Identifiers
 {
-    public sealed record SOPInstanceUID
+    public record SOPInstanceUID(string Value)
     {
-        public string Value { get; }
-
-        public SOPInstanceUID(string value)
+        public SOPInstanceUID() : this(string.Empty) { }
+        
+        public static SOPInstanceUID Create(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
-                throw new DomainException("SOP Instance UID cannot be empty");
-            
-            Value = value;
+                throw new ArgumentException("SOP Instance UID cannot be empty");
+            return new SOPInstanceUID(value);
         }
-
-        public override string ToString() => Value;
         
-        public bool Equals(SOPInstanceUID? other) => other != null && Value == other.Value;
-        public override int GetHashCode() => Value.GetHashCode();
+        public override string ToString() => Value;
     }
 }

@@ -1,22 +1,18 @@
-using TheSSS.DicomViewer.Domain.Exceptions;
+using System;
 
 namespace TheSSS.DicomViewer.Domain.Core.Identifiers
 {
-    public sealed record SeriesInstanceUID
+    public record SeriesInstanceUID(string Value)
     {
-        public string Value { get; }
-
-        public SeriesInstanceUID(string value)
+        public SeriesInstanceUID() : this(string.Empty) { }
+        
+        public static SeriesInstanceUID Create(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
-                throw new DomainException("Series Instance UID cannot be empty");
-            
-            Value = value;
+                throw new ArgumentException("Series Instance UID cannot be empty");
+            return new SeriesInstanceUID(value);
         }
-
-        public override string ToString() => Value;
         
-        public bool Equals(SeriesInstanceUID? other) => other != null && Value == other.Value;
-        public override int GetHashCode() => Value.GetHashCode();
+        public override string ToString() => Value;
     }
 }

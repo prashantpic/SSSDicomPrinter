@@ -1,28 +1,27 @@
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using TheSSS.DicomViewer.Domain.Core.Identifiers;
 
 namespace TheSSS.DicomViewer.Domain.DicomAccess
 {
     public class Study
     {
-        public StudyInstanceUID Id { get; init; }
-        public PatientId PatientId { get; init; }
-        public DateTime? StudyDate { get; private set; }
-        public IReadOnlyCollection<Series> Series => _series.AsReadOnly();
         private readonly List<Series> _series = new();
+        
+        public StudyInstanceUID Id { get; }
+        public PatientId PatientId { get; }
+        public IReadOnlyCollection<Series> Series => new ReadOnlyCollection<Series>(_series);
 
-        public Study(StudyInstanceUID id, PatientId patientId, DateTime? studyDate)
+        public Study(StudyInstanceUID id, PatientId patientId)
         {
-            Id = id ?? throw new ArgumentNullException(nameof(id));
-            PatientId = patientId ?? throw new ArgumentNullException(nameof(patientId));
-            StudyDate = studyDate;
+            Id = id;
+            PatientId = patientId;
         }
 
         public void AddSeries(Series series)
         {
-            if (series?.StudyId == null || !series.StudyId.Equals(Id))
-                throw new ArgumentException("Invalid series assignment");
-            
+            if (series.StudyId != Id)
+                throw new InvalidOperationException("Series belongs to different study");
             _series.Add(series);
         }
     }

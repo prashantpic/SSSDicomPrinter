@@ -1,8 +1,4 @@
 namespace TheSSS.DicomViewer.Domain.Validation
 {
-    public enum IssueSeverity
-    {
-        Warning,
-        Error
-    }
+    public enum IssueSeverity { Error, Warning }
 }
