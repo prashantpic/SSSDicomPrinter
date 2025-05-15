@@ -1,26 +1,19 @@
+using System.Threading.Tasks;
+
 namespace TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
 
 /// <summary>
-/// Adapter interface for interacting with the central EmailService.
-/// Implementation is expected to be provided by REPO-APP-SERVICES or REPO-INFRA.
+/// Adapter interface for interacting with a central EmailService.
+/// This abstracts the actual email sending implementation.
 /// </summary>
 public interface IEmailServiceAdapter
 {
     /// <summary>
-    /// Sends an email notification to a single recipient.
+    /// Sends an email notification.
     /// </summary>
-    /// <param name="recipient">The recipient's email address.</param>
-    /// <param name="subject">The email subject.</param>
-    /// <param name="body">The email body (can be HTML or plain text, depending on implementation).</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
+    /// <param name="recipient">The email address of the recipient.</param>
+    /// <param name="subject">The subject of the email.</param>
+    /// <param name="body">The body content of the email.</param>
+    /// <returns>A task that represents the asynchronous email sending operation.</returns>
     Task SendEmailAsync(string recipient, string subject, string body);
-
-    /// <summary>
-    /// Sends an email notification to multiple recipients.
-    /// </summary>
-    /// <param name="recipients">A list of recipient email addresses.</param>
-    /// <param name="subject">The email subject.</param>
-    /// <param name="body">The email body (can be HTML or plain text).</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    Task SendEmailAsync(IEnumerable<string> recipients, string subject, string body);
 }

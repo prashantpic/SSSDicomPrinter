@@ -1,35 +1,21 @@
-<Project Sdk="Microsoft.NET.Sdk.Worker">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>dotnet-MonitoringOrchestrator-placeholder</UserSecretsId> <!-- Placeholder, actual ID can be generated -->
-    <InvariantGlobalization>true</InvariantGlobalization>
     <RootNamespace>TheSSS.DICOMViewer.Monitoring</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="FluentValidation" Version="11.9.0" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.9.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.3" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="8.0.0" />
-    <PackageReference Include="Prometheus.Client" Version="5.0.0" /> <!-- Core Prometheus client -->
-    <!-- If exposing metrics via ASP.NET Core endpoint, Prometheus.Client.AspNetCore might be used in the host -->
-    <PackageReference Include="Serilog.Extensions.Logging" Version="8.0.0" /> <!-- For integration with MS logging -->
-  </ItemGroup>
-
-  <ItemGroup>
-    <!--
-    Project references to common contracts or interfaces if adapters are defined in separate assemblies.
-    For this generation, adapter interfaces are defined within this project's "Interfaces/Adapters" folder.
-    If they were external:
-    <ProjectReference Include="..\..\..\CrossCutting\TheSSS.DicomViewer.Common.Contracts\TheSSS.DicomViewer.Common.Contracts.csproj" />
-    <ProjectReference Include="..\..\..\ApplicationServices\TheSSS.DicomViewer.Application.Contracts\TheSSS.DicomViewer.Application.Contracts.csproj" />
-    -->
+    <PackageReference Include="prometheus-net" Version="8.2.1" />
+    <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
   </ItemGroup>
 
 </Project>

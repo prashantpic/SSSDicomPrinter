@@ -1,23 +1,19 @@
+using TheSSS.DICOMViewer.Monitoring.Contracts;
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace TheSSS.DICOMViewer.Monitoring.Interfaces;
 
-using TheSSS.DICOMViewer.Monitoring.Contracts;
-
 /// <summary>
-/// Interface for components that can dispatch alerts through a specific channel.
+/// Defines a contract for components that can dispatch alerts through a specific channel (e.g., email, UI notification).
 /// </summary>
 public interface IAlertingChannel
 {
     /// <summary>
-    /// Gets the type identifier for this alerting channel (e.g., "Email", "UI", "AuditLog").
-    /// This should match the ChannelType configured in AlertChannelSetting.
-    /// </summary>
-    string ChannelType { get; }
-
-    /// <summary>
     /// Asynchronously dispatches an alert using the specific channel's mechanism.
     /// </summary>
-    /// <param name="payload">The payload containing the notification details.</param>
+    /// <param name="payload">The notification payload containing the alert details formatted for dispatch.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
+    /// <returns>A task that represents the asynchronous dispatch operation.</returns>
     Task DispatchAlertAsync(NotificationPayloadDto payload, CancellationToken cancellationToken);
 }

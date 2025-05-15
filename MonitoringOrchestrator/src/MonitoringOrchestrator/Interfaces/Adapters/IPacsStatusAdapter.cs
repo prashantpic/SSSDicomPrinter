@@ -1,10 +1,13 @@
-namespace TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
-
 using TheSSS.DICOMViewer.Monitoring.Contracts;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
 
 /// <summary>
 /// Adapter interface for retrieving PACS connectivity status.
-/// Implementation is expected to be provided by REPO-APP-SERVICES (e.g., a DicomNetworkService).
+/// This abstracts the retrieval of PACS status from underlying services (e.g., DicomNetworkService in REPO-APP-SERVICES).
 /// </summary>
 public interface IPacsStatusAdapter
 {
@@ -13,8 +16,9 @@ public interface IPacsStatusAdapter
     /// </summary>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>
-    /// A task that represents the asynchronous operation. The task result contains an
-    /// enumerable collection of PacsConnectionInfoDto, one for each configured PACS node.
+    /// A task that represents the asynchronous operation.
+    /// The task result contains an enumerable collection of <see cref="PacsConnectionInfoDto"/>,
+    /// each representing the status of a configured PACS node.
     /// </returns>
     Task<IEnumerable<PacsConnectionInfoDto>> GetAllPacsStatusesAsync(CancellationToken cancellationToken);
 }

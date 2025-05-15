@@ -1,5 +1,8 @@
 namespace TheSSS.DICOMViewer.Monitoring.Configuration;
 
+/// <summary>
+/// Represents a single alert rule definition, specifying conditions for triggering an alert.
+/// </summary>
 public class AlertRule
 {
     /// <summary>
@@ -8,51 +11,36 @@ public class AlertRule
     public string RuleName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the type of metric this rule evaluates (e.g., "StorageUsagePercent", "PacsConnectivity", "LicenseStatus").
-    /// This should correspond to properties or data types in HealthReportDto or its constituent DTOs.
+    /// Gets or sets the type of metric this rule applies to (e.g., "StorageUsagePercent", "PacsConnectivity").
+    /// This should correspond to a property or data point in the HealthReportDto or its constituent DTOs.
     /// </summary>
     public string MetricType { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets an optional identifier for a sub-metric, if MetricType refers to a collection
-    /// (e.g., AETitle for PacsConnectivity, TaskName for AutomatedTaskStatus).
+    /// Gets or sets the threshold value that the metric will be compared against.
     /// </summary>
-    public string? SubMetricIdentifier { get; set; }
+    public double ThresholdValue { get; set; }
 
     /// <summary>
-    /// Gets or sets the threshold value for numeric metrics.
-    /// </summary>
-    public double? ThresholdValue { get; set; }
-
-    /// <summary>
-    /// Gets or sets the comparison operator (e.g., "GreaterThan", "LessThan", "EqualTo", "NotEqualTo", "Contains").
+    /// Gets or sets the comparison operator to use (e.g., "GreaterThan", "LessThan", "EqualTo").
     /// </summary>
     public string ComparisonOperator { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the expected status for string or boolean metrics (e.g., "False" for IsConnected, "Failed" for TaskStatus).
+    /// Gets or sets the severity of the alert if triggered (e.g., "Information", "Warning", "Error", "Critical").
     /// </summary>
-    public string? ExpectedStatus { get; set; }
+    public string Severity { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the severity of the alert if triggered (e.g., "Critical", "Warning", "Info").
-    /// Should match values from AlertSeverity enum.
-    /// </summary>
-    public string Severity { get; set; } = "Warning";
-
-    /// <summary>
-    /// Gets or sets the number of consecutive times the condition must be met before triggering an alert.
-    /// Default is 1. Useful for transient issues like network blips.
+    /// Gets or sets the number of consecutive failures or checks meeting the criteria before an alert is triggered.
+    /// A value of 1 means an alert is triggered on the first occurrence.
     /// </summary>
     public int ConsecutiveFailuresToAlert { get; set; } = 1;
 
     /// <summary>
-    /// Optional override for the default alert throttling window for this specific rule.
+    /// Gets or sets an optional identifier for rules that are specific to a particular target 
+    /// (e.g., a specific PACS node AETitle or a storage path).
+    /// If null or empty, the rule applies globally to the MetricType.
     /// </summary>
-    public TimeSpan? ThrottleWindowOverride { get; set; }
-
-    /// <summary>
-    /// Optional override for the default alert deduplication window for this specific rule.
-    /// </summary>
-    public TimeSpan? DeduplicationWindowOverride { get; set; }
+    public string? TargetIdentifier { get; set; }
 }

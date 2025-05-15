@@ -1,5 +1,10 @@
+using System;
+
 namespace TheSSS.DICOMViewer.Monitoring.Configuration;
 
+/// <summary>
+/// Holds configuration settings for alert deduplication.
+/// </summary>
 public class DeduplicationOptions
 {
     /// <summary>
@@ -9,9 +14,8 @@ public class DeduplicationOptions
     public bool IsEnabled { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets the time window for deduplicating alerts.
-    /// Alerts considered identical (based on content signature) occurring within this window will be suppressed.
-    /// Default is 15 minutes.
+    /// Gets or sets the window of time to look back for identical alerts to consider an incoming alert a duplicate.
+    /// Default is 5 minutes.
     /// </summary>
-    public TimeSpan DeduplicationWindow { get; set; } = TimeSpan.FromMinutes(15);
+    public TimeSpan DeduplicationWindow { get; set; } = TimeSpan.FromMinutes(5);
 }

@@ -1,12 +1,17 @@
 namespace TheSSS.DICOMViewer.Monitoring.Contracts;
 
-public class PacsConnectionInfoDto
-{
-    public string PacsNodeId { get; set; } = string.Empty; // Could be AE Title or another unique identifier
-    public string? AETitle { get; set; }
-    public bool IsConnected { get; set; }
-    public DateTime? LastSuccessfulEchoTimestamp { get; set; }
-    public DateTime? LastFailedEchoTimestamp { get; set; }
-    public string? LastEchoErrorMessage { get; set; }
-    public int ConsecutiveFailedChecks { get; set; } // Useful for alert rules
-}
+/// <summary>
+/// Contains information about the connectivity status of a PACS node.
+/// </summary>
+/// <param name="PacsNodeId">The identifier or AE Title of the PACS node.</param>
+/// <param name="IsConnected">A value indicating whether the PACS node is currently connected (e.g., last C-ECHO was successful).</param>
+/// <param name="LastSuccessfulEchoTimestamp">The timestamp of the last successful C-ECHO, if any.</param>
+/// <param name="LastFailedEchoTimestamp">The timestamp of the last failed C-ECHO, if any.</param>
+/// <param name="LastEchoErrorMessage">The error message from the last failed C-ECHO, if applicable.</param>
+public record PacsConnectionInfoDto(
+    string PacsNodeId,
+    bool IsConnected,
+    DateTimeOffset? LastSuccessfulEchoTimestamp,
+    DateTimeOffset? LastFailedEchoTimestamp,
+    string? LastEchoErrorMessage
+);

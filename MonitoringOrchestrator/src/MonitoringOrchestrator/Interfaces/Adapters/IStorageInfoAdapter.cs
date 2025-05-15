@@ -1,10 +1,12 @@
-namespace TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
-
 using TheSSS.DICOMViewer.Monitoring.Contracts;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace TheSSS.DICOMViewer.Monitoring.Interfaces.Adapters;
 
 /// <summary>
 /// Adapter interface for retrieving storage information.
-/// Implementation is expected to be provided by REPO-INFRA or REPO-APP-SERVICES.
+/// This abstracts the retrieval of local DICOM repository storage utilization from underlying infrastructure or application services.
 /// </summary>
 public interface IStorageInfoAdapter
 {
@@ -13,8 +15,8 @@ public interface IStorageInfoAdapter
     /// </summary>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>
-    /// A task that represents the asynchronous operation. The task result contains
-    /// a StorageHealthInfoDto detailing total capacity, free space, and usage percentage.
+    /// A task that represents the asynchronous operation.
+    /// The task result contains a <see cref="StorageHealthInfoDto"/> with details about storage utilization.
     /// </returns>
     Task<StorageHealthInfoDto> GetStorageHealthInfoAsync(CancellationToken cancellationToken);
 }
