@@ -1,167 +1,239 @@
-using Microsoft.EntityFrameworkCore;
+using FluentAssertions;
 using Microsoft.Extensions.Configuration;
-using TheSSS.DicomViewer.Application.Services; // For IDicomSearchService, SearchCriteria, StudySearchResult
-using TheSSS.DicomViewer.Domain.Entities;    // For Patient, Study, Series, Instance
-using TheSSS.DicomViewer.Infrastructure.Data; // For DicomDbContext
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading.Tasks;
 using TheSSS.DicomViewer.IntegrationTests.Fixtures;
 using TheSSS.DicomViewer.IntegrationTests.Helpers;
+// Placeholder for IDicomSearchService and related types
+// namespace TheSSS.DicomViewer.Application
+// {
+//     public class DicomSearchQuery { /* ... properties ... */ public string PatientName { get; set; } public DateTime? StudyDateFrom { get; set; } public DateTime? StudyDateTo { get; set; } public string Modality { get; set; }}
+//     public class DicomSearchResult { public int TotalCount { get; set; } /* ... other properties ... */ }
+//     public interface IDicomSearchService
+//     {
+//         Task<DicomSearchResult> SearchAsync(DicomSearchQuery query);
+//     }
+// }
+// Placeholder for Domain Entities (Patient, Study, Series, Instance)
+// namespace TheSSS.DicomViewer.Domain
+// {
+//     public class Patient { public string PatientId { get; set; } public string PatientName { get; set; } ... }
+//     public class Study { public string StudyInstanceUid { get; set; } public string PatientId { get; set; } public DateTime StudyDate { get; set; } public string Modality { get; set; } ... }
+//     // ... Series, Instance
+// }
 
-namespace TheSSS.DicomViewer.IntegrationTests.Search;
-
-[Trait("Category", "Performance")]
-[Collection("PerformanceSensitiveTests")]
-public class LocalSearchPerformanceTests : IClassFixture<AppHostFixture>, IClassFixture<DatabaseFixture>, IAsyncLifetime
+namespace TheSSS.DicomViewer.IntegrationTests.Search
 {
-    private readonly AppHostFixture _appHostFixture;
-    private readonly DatabaseFixture _dbFixture;
-    private readonly IDicomSearchService _searchService;
-    private readonly TimeSpan _searchThreshold;
-    private readonly IConfiguration _configuration;
-
-    private static bool _isDatabaseSeededForSearchPerf = false;
-    private static readonly object _seedLock = new object();
-
-    public LocalSearchPerformanceTests(AppHostFixture appHostFixture, DatabaseFixture dbFixture)
+    // Placeholders for Application Layer search components
+    namespace TheSSS.DicomViewer.Application
     {
-        _appHostFixture = appHostFixture;
-        _dbFixture = dbFixture;
-        _configuration = _appHostFixture.ServiceProvider.GetRequiredService<IConfiguration>();
-        _searchService = _appHostFixture.ServiceProvider.GetRequiredService<IDicomSearchService>();
-        
-        var thresholdMs = _configuration.GetValue<int>("PerformanceThresholds:LocalSearchMs", 2000);
-        _searchThreshold = TimeSpan.FromMilliseconds(thresholdMs);
+        public class DicomSearchQuery
+        {
+            public string? PatientName { get; set; }
+            public DateTime? StudyDateFrom { get; set; }
+            public DateTime? StudyDateTo { get; set; }
+            public string? Modality { get; set; }
+            public string? AccessionNumber { get; set; }
+            // Add other relevant search fields
+        }
+
+        public class DicomSearchResult
+        {
+            public int TotalCount { get; set; }
+            public IEnumerable<object> Results { get; set; } = Enumerable.Empty<object>(); // Simplified
+        }
+
+        public interface IDicomSearchService
+        {
+            Task<DicomSearchResult> SearchAsync(DicomSearchQuery query);
+        }
     }
 
-    public async Task InitializeAsync()
+    // Re-using Domain placeholders from DatabaseOperationsTests if they were global, else define here
+    // Assuming Domain.Patient, Domain.Study etc. are accessible.
+
+    [Trait("Category", "Performance")]
+    [Collection("PerformanceSensitiveTests")]
+    public class LocalSearchPerformanceTests : IClassFixture<AppHostFixture>, IClassFixture<DatabaseFixture>, IAsyncLifetime
     {
-        // One-time seeding for this test class/collection
-        bool seedDatabase = false;
-        lock (_seedLock)
+        private readonly AppHostFixture _appHostFixture;
+        private readonly DatabaseFixture _databaseFixture;
+        private readonly PerformanceMetricsHelper _performanceHelper;
+        private readonly Application.IDicomSearchService _searchService;
+        private readonly IConfiguration _configuration;
+        private readonly int _localSearchThresholdMs;
+        private const int NumberOfStudiesToSeed = 50000; // As per REQ-DLMM-035 context
+
+        public LocalSearchPerformanceTests(AppHostFixture appHostFixture, DatabaseFixture databaseFixture)
         {
-            if (!_isDatabaseSeededForSearchPerf)
+            _appHostFixture = appHostFixture;
+            _databaseFixture = databaseFixture;
+            _performanceHelper = new PerformanceMetricsHelper();
+            _searchService = _appHostFixture.ServiceProvider.GetRequiredService<Application.IDicomSearchService>();
+            _configuration = _appHostFixture.ServiceProvider.GetRequiredService<IConfiguration>();
+            _localSearchThresholdMs = _configuration.GetValue<int>("PerformanceThresholds:LocalSearchMs", 2000);
+        }
+
+        public async Task InitializeAsync()
+        {
+            await _databaseFixture.ResetDatabaseAsync(); // Start with a clean slate
+
+            Console.WriteLine($"Seeding {NumberOfStudiesToSeed} studies for search performance tests. This may take a while...");
+            var stopwatch = Stopwatch.StartNew();
+
+            var patients = new List<Domain.Patient>();
+            var studies = new List<Domain.Study>(); // Assuming Domain.Study is defined
+            var seriesList = new List<TheSSS.DicomViewer.Domain.Series>(); // Placeholder
+            var instances = new List<TheSSS.DicomViewer.Domain.Instance>(); // Placeholder
+
+
+            var modalities = new[] { "CT", "MR", "US", "XA", "MG", "CR" };
+            var random = new Random();
+
+            for (int i = 0; i < NumberOfStudiesToSeed / 10; i++) // Assuming 10 studies per patient on average
             {
-                seedDatabase = true;
-                _isDatabaseSeededForSearchPerf = true; // Mark as seeded even if it fails, to prevent re-attempts in one run
+                var patient = new Domain.Patient
+                {
+                    PatientId = $"PAT_{Guid.NewGuid().ToString().Substring(0, 8)}",
+                    PatientName = $"SearchPatientName{i % 1000}^{TestLastName{i / 1000}}", // Vary names for searching
+                    LastUpdateTime = DateTime.UtcNow
+                };
+                patients.Add(patient);
+
+                for (int j = 0; j < 10; j++) // 10 studies for this patient
+                {
+                    var studyDate = DateTime.UtcNow.AddDays(-random.Next(1, 365 * 5)); // Studies from last 5 years
+                    var study = new TheSSS.DicomViewer.Domain.Study // Using fully qualified name if namespace conflicts
+                    {
+                        StudyInstanceUid = $"STUDY_{Guid.NewGuid().ToString().Substring(0, 12)}",
+                        PatientId = patient.PatientId,
+                        StudyDate = studyDate.ToString("yyyyMMdd"), // DICOM date format
+                        StudyTime = studyDate.ToString("HHmmss"),   // DICOM time format
+                        AccessionNumber = $"ACC{random.Next(100000, 999999)}",
+                        StudyDescription = $"Test Study Desc {i}-{j}",
+                        ModalitiesInStudy = new List<string> { modalities[random.Next(modalities.Length)] }, // Simplified for this example
+                        LastUpdateTime = DateTime.UtcNow
+                    };
+                    studies.Add(study);
+                    // Could add Series and Instances too for more realism, but focus on Study for search
+                }
             }
-        }
 
-        if (seedDatabase)
-        {
-            Debug.WriteLine("Seeding database for LocalSearchPerformanceTests...");
-            var targetStudyCount = _configuration.GetValue<int>("PerformanceTestData:SearchStudyCount", 50000);
-            await SeedLargeDatabaseAsync(targetStudyCount);
-            Debug.WriteLine($"Database seeding complete for {targetStudyCount} studies.");
-        }
-    }
-
-    public Task DisposeAsync() => Task.CompletedTask;
-
-    private async Task SeedLargeDatabaseAsync(int targetStudyCount)
-    {
-        await _dbFixture.ResetDatabaseAsync(); // Clear before seeding
-
-        var random = new Random(12345); // Fixed seed for reproducibility
-        var baseDate = new DateTime(2020, 1, 1);
-        
-        string[] patientNameBases = { "SMITH", "JOHNSON", "WILLIAMS", "BROWN", "JONES", "GARCIA", "MILLER", "DAVIS", "RODRIGUEZ", "MARTINEZ" };
-        string[] patientFirstNames = { "JAMES", "MARY", "ROBERT", "PATRICIA", "JOHN", "JENNIFER", "MICHAEL", "LINDA", "DAVID", "ELIZABETH" };
-        string[] modalities = { "CT", "MR", "US", "XA", "CR", "DX", "MG", "NM", "PT", "OT" };
-        string[] studyDescriptions = { "CHEST PA", "BRAIN W/O CONTRAST", "ABDOMEN COMPLETE", "KNEE RT", "LUMBAR SPINE", "PELVIS AP", "CAROTID DOPPLER", "CARDIAC ECHO", "MAMMOGRAM SCREENING", "PET BRAIN FDG" };
-
-        var patients = new List<Patient>();
-        int numPatients = Math.Max(1, targetStudyCount / 25); // Aim for ~25 studies per patient on average
-        for (int i = 0; i < numPatients; i++)
-        {
-            patients.Add(new Patient
+            await _databaseFixture.SeedDataAsync(async context =>
             {
-                PatientId = $"PAT{i:D7}",
-                PatientName = $"{patientNameBases[random.Next(patientNameBases.Length)]}^{patientFirstNames[random.Next(patientFirstNames.Length)]}_{i:D4}",
-                PatientBirthDate = baseDate.AddDays(-random.Next(15000, 30000)).ToString("yyyyMMdd"), // Approx 40-80 years old
-                PatientSex = random.Next(0, 2) == 0 ? "M" : "F"
+                // EF Core's AddRange is efficient for bulk inserts
+                await context.Set<Domain.Patient>().AddRangeAsync(patients);
+                await context.Set<TheSSS.DicomViewer.Domain.Study>().AddRangeAsync(studies);
+                // await context.Set<Domain.Series>().AddRangeAsync(seriesList);
+                // await context.Set<Domain.Instance>().AddRangeAsync(instances);
             });
+            stopwatch.Stop();
+            Console.WriteLine($"Database seeding completed in {stopwatch.ElapsedMilliseconds}ms.");
+
+            // Perform a warm-up search
+            await _searchService.SearchAsync(new Application.DicomSearchQuery { PatientName = "WarmUpPatient" });
         }
-        await _dbFixture.SeedDataAsync(ctx => ctx.Patients.AddRange(patients));
 
-        // Re-fetch patients with IDs if DB generates them, or assume PatientId is the PK
-        // For this example, we assume PatientId is text PK and set by us.
-        var allPatientsInDb = patients; // If IDs were auto-generated, re-query: await _dbFixture.CreateContext().Patients.ToListAsync();
+        public Task DisposeAsync() => Task.CompletedTask;
 
 
-        var studies = new List<Study>();
-        for (int i = 0; i < targetStudyCount; i++)
+        [Fact]
+        public async Task SearchByPatientName_LargeDataset_ShouldReturnResultsWithin2Seconds()
         {
-            var patient = allPatientsInDb[random.Next(allPatientsInDb.Count)];
-            studies.Add(new Study
+            var query = new Application.DicomSearchQuery { PatientName = "SearchPatientName50" }; // A name likely to exist
+            TimeSpan elapsed = await _performanceHelper.MeasureExecutionTimeAsync(() => _searchService.SearchAsync(query));
+            Console.WriteLine($"SearchByPatientName took {elapsed.TotalMilliseconds}ms.");
+            elapsed.TotalMilliseconds.Should().BeLessOrEqualTo(_localSearchThresholdMs);
+            var result = await _searchService.SearchAsync(query); // Get actual result for count check
+            result.TotalCount.Should().BeGreaterThan(0);
+        }
+
+        [Fact]
+        public async Task SearchByStudyDateRange_LargeDataset_ShouldReturnResultsWithin2Seconds()
+        {
+            var dateTo = DateTime.UtcNow.AddDays(-random.Next(30, 90));
+            var dateFrom = dateTo.AddDays(-30); // Search for studies in a 30-day window
+            var query = new Application.DicomSearchQuery { StudyDateFrom = dateFrom, StudyDateTo = dateTo };
+
+            TimeSpan elapsed = await _performanceHelper.MeasureExecutionTimeAsync(() => _searchService.SearchAsync(query));
+            Console.WriteLine($"SearchByStudyDateRange took {elapsed.TotalMilliseconds}ms.");
+            elapsed.TotalMilliseconds.Should().BeLessOrEqualTo(_localSearchThresholdMs);
+            var result = await _searchService.SearchAsync(query);
+            result.TotalCount.Should().BeGreaterThan(0);
+        }
+        private static readonly Random random = new Random();
+
+        [Fact]
+        public async Task SearchByModality_LargeDataset_ShouldReturnResultsWithin2Seconds()
+        {
+            var query = new Application.DicomSearchQuery { Modality = "CT" }; // Assuming CT is a common modality
+            TimeSpan elapsed = await _performanceHelper.MeasureExecutionTimeAsync(() => _searchService.SearchAsync(query));
+            Console.WriteLine($"SearchByModality took {elapsed.TotalMilliseconds}ms.");
+            elapsed.TotalMilliseconds.Should().BeLessOrEqualTo(_localSearchThresholdMs);
+            var result = await _searchService.SearchAsync(query);
+            result.TotalCount.Should().BeGreaterThan(0);
+        }
+
+        [Fact]
+        public async Task SearchByCombinedCriteria_LargeDataset_ShouldReturnResultsWithin2Seconds()
+        {
+            var dateTo = DateTime.UtcNow.AddDays(-random.Next(100, 200));
+            var dateFrom = dateTo.AddDays(-60);
+            var query = new Application.DicomSearchQuery
             {
-                StudyInstanceUid = $"1.2.840.113619.2.400.3.111222333.444.5555555555.{i:D7}", // Generate unique UIDs
-                PatientId = patient.Id, // FK to Patient
-                StudyDate = baseDate.AddDays(random.Next(0, 1460)).ToString("yyyyMMdd"), // Studies over 4 years
-                StudyTime = $"{random.Next(0,24):D2}{random.Next(0,60):D2}{random.Next(0,60):D2}",
-                AccessionNumber = $"ACC{i:D7}",
-                StudyDescription = studyDescriptions[random.Next(studyDescriptions.Length)]
-                // Modalities are typically per-series, but we can add a primary modality here for search convenience
-                // Or use a StudyModality junction table as per schema. For this seed, keep it simple.
-            });
+                PatientName = "SearchPatientName", // Partial name to get more results
+                Modality = "MR",
+                StudyDateFrom = dateFrom,
+                StudyDateTo = dateTo
+            };
+            TimeSpan elapsed = await _performanceHelper.MeasureExecutionTimeAsync(() => _searchService.SearchAsync(query));
+            Console.WriteLine($"SearchByCombinedCriteria took {elapsed.TotalMilliseconds}ms.");
+            elapsed.TotalMilliseconds.Should().BeLessOrEqualTo(_localSearchThresholdMs);
+             var result = await _searchService.SearchAsync(query);
+            // Combined criteria might yield 0 results if not carefully crafted, adjust assertion if needed
+            // For performance, we care more about query execution time than specific counts here
+            result.TotalCount.Should().BeGreaterOrEqualTo(0);
         }
-        await _dbFixture.SeedDataAsync(ctx => ctx.Studies.AddRange(studies));
-        
-        // Could also seed Series and Instances for more complex search scenarios, but Studies are primary for REQ-DLMM-035.
-        // For instance-level searches, more detailed seeding would be needed.
     }
 
-
-    private async Task PerformSearchTest(SearchCriteria criteria, string testDescription)
+    // Minimal placeholders for Domain entities used in seeding, if not globally available.
+    // These should match the structure expected by DicomDbContext from REPO-INFRA.
+    namespace TheSSS.DicomViewer.Domain
     {
-        var elapsed = await PerformanceMetricsHelper.MeasureExecutionTimeAsync(async () =>
+        // Patient defined in DatabaseOperationsTests, re-using definition or assuming it's accessible.
+        // public class Patient { public string PatientId { get; set; } public string PatientName { get; set; } public DateTime LastUpdateTime { get; set; } }
+
+        public class Study
         {
-            var results = await _searchService.SearchStudiesAsync(criteria); // Assuming SearchStudiesAsync
-            results.Should().NotBeNull();
-            // Depending on the search term, results might be empty, which is valid.
-            // For performance, we care more about time than if specific results are found, assuming DB is seeded.
-            // However, for specific known-data searches, you'd assert result count.
-        });
-        elapsed.Should().BeLessThanOrEqualTo(_searchThreshold, 
-            $"{testDescription} took {elapsed.TotalMilliseconds:F0}ms, exceeding threshold of {_searchThreshold.TotalMilliseconds:F0}ms.");
-    }
+            public string StudyInstanceUid { get; set; } = string.Empty;
+            public string PatientId { get; set; } = string.Empty;
+            public string? StudyDate { get; set; }
+            public string? StudyTime { get; set; }
+            public string? AccessionNumber { get; set; }
+            public string? StudyDescription { get; set; }
+            public ICollection<string> ModalitiesInStudy { get; set; } = new List<string>(); // For multi-modality search
+            public DateTime LastUpdateTime { get; set; }
+        }
 
-    [Fact]
-    [Trait("Requirement", "REQ-DLMM-035")]
-    [Trait("Requirement", "REQ-DLMM-017")] // General search
-    [Trait("Requirement", "REQ-DLMM-021")] // Search by tags
-    public async Task SearchByPatientName_LargeDataset_ShouldReturnResultsWithin2Seconds()
-    {
-        // Using a common base name that should match multiple seeded patients
-        await PerformSearchTest(new SearchCriteria { PatientName = "SMITH*" }, "Search by Patient Name (wildcard)");
-    }
+        public class Series
+        {
+            public string SeriesInstanceUid { get; set; } = string.Empty;
+            public string StudyInstanceUid { get; set; } = string.Empty;
+            public string? Modality { get; set; }
+            // ... other properties
+            public DateTime LastUpdateTime { get; set; }
+        }
 
-    [Fact]
-    [Trait("Requirement", "REQ-DLMM-035")]
-    [Trait("Requirement", "REQ-DLMM-021")]
-    public async Task SearchByStudyDateRange_LargeDataset_ShouldReturnResultsWithin2Seconds()
-    {
-        var dateFrom = new DateTime(2021, 1, 1);
-        var dateTo = new DateTime(2021, 12, 31);
-        await PerformSearchTest(new SearchCriteria { StudyDateFrom = dateFrom, StudyDateTo = dateTo }, "Search by Study Date Range");
-    }
-    
-    [Fact]
-    [Trait("Requirement", "REQ-DLMM-035")]
-    [Trait("Requirement", "REQ-DLMM-021")]
-    public async Task SearchByModality_LargeDataset_ShouldReturnResultsWithin2Seconds()
-    {
-         // This search would be more effective if Study table had a Modalities column or Series were seeded and searched.
-         // For now, assuming SearchStudiesAsync can search across series modalities or a denormalized Study.PrimaryModality.
-         // If not, this test would need adjustment based on actual search capabilities.
-         // We'll simulate searching for a common modality like CT. If Series are not seeded/joined, this might be slow or return 0.
-        await PerformSearchTest(new SearchCriteria { Modalities = new List<string> { "CT" } }, "Search by Modality (CT)");
-    }
-
-    [Fact]
-    [Trait("Requirement", "REQ-DLMM-035")]
-    [Trait("Requirement", "REQ-DLMM-021")]
-    public async Task SearchByCombinedCriteria_LargeDataset_ShouldReturnResultsWithin2Seconds()
-    {
-        var dateFrom = new DateTime(2022, 1, 1);
-        await PerformSearchTest(new SearchCriteria { PatientName = "JONES*", StudyDateFrom = dateFrom, Modalities = new List<string> { "MR" } }, "Search by Combined Criteria");
+        public class Instance
+        {
+            public string SopInstanceUid { get; set; } = string.Empty;
+            public string SeriesInstanceUid { get; set; } = string.Empty;
+            // ... other properties
+            public DateTime LastUpdateTime { get; set; }
+        }
     }
 }

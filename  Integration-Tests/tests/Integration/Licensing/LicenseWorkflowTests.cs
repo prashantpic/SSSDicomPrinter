@@ -1,130 +1,150 @@
-// Apply collection fixture for AppHost (dependency injection) and Database (if needed for licensing state)
-// TheSSS.DicomViewer.Application.Services contains ILicensingOrchestrationService, LicenseActivationResult, LicenseValidationResult
-// TheSSS.DicomViewer.IntegrationTests.Mocks contains MockOdooLicensingApiClient
-// TheSSS.DicomViewer.Application.Services also contains ILicensingApiClient
-using TheSSS.DicomViewer.Application.Services;
-using TheSSS.DicomViewer.IntegrationTests.Fixtures;
-using TheSSS.DicomViewer.IntegrationTests.Mocks;
+using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Threading.Tasks;
+using TheSSS.DicomViewer.IntegrationTests.Fixtures; // Assuming AppHostFixture is here
+using TheSSS.DicomViewer.IntegrationTests.Mocks; // Assuming MockOdooLicensingApiClient is here
+// Assuming these interfaces and types exist in TheSSS.DicomViewer.Application or TheSSS.DicomViewer.Domain
+// For compilation, minimal placeholders are used.
+// namespace TheSSS.DicomViewer.Application
+// {
+//     public interface ILicensingOrchestrationService
+//     {
+//         Task<LicenseActivationResult> ActivateLicenseAsync(string licenseKey);
+//         Task<LicenseValidationResult> ValidateCurrentLicenseAsync();
+//         Task PerformStartupLicenseCheckAsync(); // Method to simulate startup check
+//         ApplicationLicenseState GetCurrentLicenseState(); // Method to get current state
+//     }
+//     public class LicenseActivationResult { public bool Success { get; set; } public string Message { get; set; } }
+//     public class LicenseValidationResult { public bool IsValid { get; set; } public bool IsExpired { get; set; } public DateTime? ExpiryDate { get; set; } public string Message { get; set; }}
+//     public enum ApplicationLicenseState { Unlicensed, Licensed, GracePeriod, ExpiredLimited }
+//     public interface INotificationService { Task NotifyUserAsync(string title, string message); }
+// }
 
-namespace TheSSS.DicomViewer.IntegrationTests.Licensing;
 
-[Collection("SequentialIntegrationTests")] // Use a sequential collection if licensing state affects multiple tests
-public class LicenseWorkflowTests : IClassFixture<AppHostFixture>
+namespace TheSSS.DicomViewer.IntegrationTests.Licensing
 {
-    private readonly AppHostFixture _fixture;
-    private readonly ILicensingOrchestrationService _licensingService;
-    private readonly MockOdooLicensingApiClient _mockLicensingClient;
-
-    public LicenseWorkflowTests(AppHostFixture fixture)
+    // Minimal placeholder for ILicensingOrchestrationService and related types for this file to be self-contained for generation
+    // In a real scenario, these would be in TheSSS.DicomViewer.Application project
+    public interface ILicensingOrchestrationService
     {
-        _fixture = fixture;
-        _licensingService = _fixture.ServiceProvider.GetRequiredService<ILicensingOrchestrationService>();
-        _mockLicensingClient = (MockOdooLicensingApiClient)_fixture.ServiceProvider.GetRequiredService<ILicensingApiClient>();
-        
-        // Clear mock setups and invocations before each test
-        _mockLicensingClient.Mock.Invocations.Clear();
-        _mockLicensingClient.Mock.Reset();
+        Task<LicenseActivationResult> ActivateLicenseAsync(string licenseKey);
+        Task<LicenseValidationResult> ValidateCurrentLicenseAsync();
+        Task PerformStartupLicenseCheckAsync();
+        ApplicationLicenseState GetCurrentLicenseState();
+        bool IsLicensePersisted(); // Example method to check persistence
     }
 
-    [Fact]
-    [Trait("Category", "Licensing")]
-    [Trait("Requirement", "REQ-LDM-TST-001")]
-    [Trait("Requirement", "REQ-LDM-LIC-001")] // Covered by successful activation
-    [Trait("Requirement", "REQ-LDM-LIC-002")]
-    public async Task ActivateLicense_WithValidKey_ShouldSucceedAndStoreLicense()
+    public class LicenseActivationResult { public bool Success { get; set; } public string Message { get; set; } = string.Empty; }
+    public class LicenseValidationResult { public bool IsValid { get; set; } public bool IsExpired { get; set; } public DateTime? ExpiryDate { get; set; } public string Message { get; set; } = string.Empty; }
+    public enum ApplicationLicenseState { Unlicensed, Licensed, GracePeriod, ExpiredLimited, FullFunctionality, LimitedMode }
+
+    public interface IApplicationStateService // Placeholder for application state
     {
-        // Arrange
-        var validKey = "TEST-VALID-KEY-12345";
-        _mockLicensingClient.SetupActivateSuccess(validKey);
-        _mockLicensingClient.SetupValidateValid(validKey); // Assume successful activation also means it's valid
-
-        // Act
-        var result = await _licensingService.ActivateLicenseAsync(validKey);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.IsSuccess.Should().BeTrue();
-        result.ErrorMessage.Should().BeNullOrEmpty();
-
-        _mockLicensingClient.Mock.Verify(m => m.ActivateLicenseAsync(validKey), Times.Once());
-
-        // Verify the license is considered valid by the orchestration service after activation
-        var validationResult = await _licensingService.ValidateLicenseAsync(validKey);
-        validationResult.Should().NotBeNull();
-        validationResult.IsValid.Should().BeTrue("License should be valid after successful activation.");
+        ApplicationLicenseState CurrentLicenseState { get; }
+        void SetLicenseState(ApplicationLicenseState state);
     }
 
-    [Fact]
-    [Trait("Category", "Licensing")]
-    [Trait("Requirement", "REQ-LDM-TST-001")]
-    [Trait("Requirement", "REQ-LDM-LIC-003")] // Covered by invalid key activation
-    public async Task ActivateLicense_WithInvalidKey_ShouldFailAndNotifyUser()
+    public class ApplicationStateService : IApplicationStateService // Placeholder implementation
     {
-        // Arrange
-        var invalidKey = "TEST-INVALID-KEY-67890";
-        var expectedError = "Invalid license key.";
-        _mockLicensingClient.SetupActivateFailure(invalidKey, expectedError);
-        _mockLicensingClient.SetupValidateInvalid(invalidKey); // Assume invalid activation also means it's invalid
-
-        // Act
-        var result = await _licensingService.ActivateLicenseAsync(invalidKey);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.IsSuccess.Should().BeFalse();
-        result.ErrorMessage.Should().Be(expectedError);
-
-        _mockLicensingClient.Mock.Verify(m => m.ActivateLicenseAsync(invalidKey), Times.Once());
-        
-        var validationResult = await _licensingService.ValidateLicenseAsync(invalidKey);
-        validationResult.Should().NotBeNull();
-        validationResult.IsValid.Should().BeFalse("License should be invalid after failed activation with an invalid key.");
+        public ApplicationLicenseState CurrentLicenseState { get; private set; }
+        public void SetLicenseState(ApplicationLicenseState state) => CurrentLicenseState = state;
     }
 
-    [Fact]
-    [Trait("Category", "Licensing")]
-    [Trait("Requirement", "REQ-LDM-TST-001")]
-    public async Task ApplicationStartup_WithValidLicense_AllowsFullFunctionality()
+
+    [Collection("SequentialIntegrationTests")]
+    public class LicenseWorkflowTests : IClassFixture<AppHostFixture>
     {
-        // Arrange
-        var validKey = "STORED-VALID-KEY";
-        // Simulate that the service has this key stored and validated at startup
-        _mockLicensingClient.SetupValidateValid(validKey); 
-        // Assuming LicensingOrchestrationService would call ValidateLicenseAsync on startup or when state is checked
+        private readonly AppHostFixture _appHostFixture;
+        private readonly ILicensingOrchestrationService _licensingService;
+        private readonly MockOdooLicensingApiClient _mockOdooClient;
+        private readonly MockNotificationService _mockNotificationService; // Assuming a mock notification service is registered
 
-        // Act
-        // This might be implicitly tested by checking a property or behavior of the licensing service
-        // that reflects the startup state. For an explicit test:
-        var validationResult = await _licensingService.ValidateLicenseAsync(validKey); // Simulate startup check or get current status
+        public LicenseWorkflowTests(AppHostFixture appHostFixture)
+        {
+            _appHostFixture = appHostFixture;
+            _licensingService = _appHostFixture.ServiceProvider.GetRequiredService<ILicensingOrchestrationService>();
+            _mockOdooClient = _appHostFixture.ServiceProvider.GetRequiredService<MockOdooLicensingApiClient>(); // Assumes MockOdooLicensingApiClient is registered as itself or its interface
+            _mockNotificationService = _appHostFixture.ServiceProvider.GetRequiredService<MockNotificationService>(); // Assumes this is registered
+        }
 
-        // Assert
-        validationResult.Should().NotBeNull();
-        validationResult.IsValid.Should().BeTrue();
-        // Further assertions would depend on how "full functionality" is exposed, e.g.,
-        // _licensingService.CurrentLicenseStatus.Should().Be(LicenseStatus.Active);
-        // _licensingService.IsFeatureEnabled("SomePremiumFeature").Should().BeTrue();
-    }
+        [Fact]
+        [Trait("Category", "Integration")]
+        public async Task ActivateLicense_WithValidKey_ShouldSucceedAndStoreLicense()
+        {
+            // Arrange
+            var validKey = "VALID-KEY-123";
+            _mockOdooClient.SetupActivationResponse(validKey, new Application.ILicensingApiClient.LicenseActivationResult { Success = true, LicenseId = "LID123", ExpiryDate = DateTime.UtcNow.AddYears(1) });
 
-    [Fact]
-    [Trait("Category", "Licensing")]
-    [Trait("Requirement", "REQ-LDM-TST-001")]
-    public async Task ApplicationStartup_WithExpiredLicense_EntersGracePeriodOrLimitedMode()
-    {
-        // Arrange
-        var expiredKey = "STORED-EXPIRED-KEY";
-        _mockLicensingClient.SetupValidateExpired(expiredKey);
-        // Assuming LicensingOrchestrationService handles the "expired" status from the client
-        // and transitions to grace period/limited mode.
+            // Act
+            var result = await _licensingService.ActivateLicenseAsync(validKey);
 
-        // Act
-        var validationResult = await _licensingService.ValidateLicenseAsync(expiredKey);
+            // Assert
+            result.Should().NotBeNull();
+            result.Success.Should().BeTrue();
+            // Assuming the service has a way to check if license is persisted or GetCurrentLicenseState reflects it
+            _licensingService.IsLicensePersisted().Should().BeTrue(); // Example assertion
+            _licensingService.GetCurrentLicenseState().Should().Be(ApplicationLicenseState.Licensed);
+        }
 
-        // Assert
-        validationResult.Should().NotBeNull();
-        validationResult.IsValid.Should().BeFalse();
-        validationResult.Status.Should().Be("Expired", "Validation result should indicate expiry.");
-        // Assert application state (e.g., grace period, limited mode)
-        // This depends on how LicensingOrchestrationService exposes this state. Example:
-        // _licensingService.CurrentLicenseStatus.Should().Be(LicenseStatus.GracePeriod); // Or LicenseStatus.Limited
+        [Fact]
+        [Trait("Category", "Integration")]
+        public async Task ActivateLicense_WithInvalidKey_ShouldFailAndNotifyUser()
+        {
+            // Arrange
+            var invalidKey = "INVALID-KEY-456";
+            _mockOdooClient.SetupActivationResponse(invalidKey, new Application.ILicensingApiClient.LicenseActivationResult { Success = false, ErrorMessage = "Invalid license key" });
+            _mockNotificationService.ClearNotifications();
+
+            // Act
+            var result = await _licensingService.ActivateLicenseAsync(invalidKey);
+
+            // Assert
+            result.Should().NotBeNull();
+            result.Success.Should().BeFalse();
+            result.Message.Should().Contain("Invalid license key");
+            _mockNotificationService.Notifications.Should().ContainSingle(n => n.Title == "License Activation Failed" && n.Message.Contains("Invalid license key"));
+            _licensingService.GetCurrentLicenseState().Should().Be(ApplicationLicenseState.Unlicensed);
+        }
+
+        [Fact]
+        [Trait("Category", "Integration")]
+        public async Task ApplicationStartup_WithValidLicense_AllowsFullFunctionality()
+        {
+            // Arrange
+            // Simulate a pre-existing valid license state for startup check
+             _mockOdooClient.SetupValidationResponseForAnyKey(new Application.ILicensingApiClient.LicenseValidationResult { IsValid = true, ExpiryDate = DateTime.UtcNow.AddMonths(6) });
+            // Or, if licensing service loads from a persistent store, ensure it's seeded via a mock store or the actual service logic
+            // For this test, we assume PerformStartupLicenseCheckAsync uses the mock client
+
+            // Act
+            await _licensingService.PerformStartupLicenseCheckAsync(); // This method would internally use the mock Odoo client
+
+            // Assert
+            // Check application state via a dedicated service or properties on licensing service
+            var appStateService = _appHostFixture.ServiceProvider.GetRequiredService<IApplicationStateService>(); // Assuming such service exists
+            appStateService.CurrentLicenseState.Should().Be(ApplicationLicenseState.FullFunctionality);
+            _licensingService.GetCurrentLicenseState().Should().Be(ApplicationLicenseState.Licensed);
+        }
+
+        [Fact]
+        [Trait("Category", "Integration")]
+        public async Task ApplicationStartup_WithExpiredLicense_EntersGracePeriodOrLimitedMode()
+        {
+            // Arrange
+            _mockOdooClient.SetupValidationResponseForAnyKey(new Application.ILicensingApiClient.LicenseValidationResult { IsValid = false, IsExpired = true, ExpiryDate = DateTime.UtcNow.AddMonths(-1), GracePeriodEndDate = DateTime.UtcNow.AddDays(7) });
+             _mockNotificationService.ClearNotifications();
+
+
+            // Act
+            await _licensingService.PerformStartupLicenseCheckAsync();
+
+            // Assert
+            var appStateService = _appHostFixture.ServiceProvider.GetRequiredService<IApplicationStateService>();
+            // The exact state (GracePeriod or LimitedMode) depends on business logic
+            appStateService.CurrentLicenseState.Should().BeOneOf(ApplicationLicenseState.GracePeriod, ApplicationLicenseState.LimitedMode);
+            _licensingService.GetCurrentLicenseState().Should().BeOneOf(ApplicationLicenseState.GracePeriod, ApplicationLicenseState.ExpiredLimited);
+            _mockNotificationService.Notifications.Should().ContainSingle(n => n.Title.Contains("License Expired") || n.Title.Contains("Grace Period"));
+        }
     }
 }

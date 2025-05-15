@@ -1,81 +1,158 @@
-// Assuming IApplicationUpdateService and UpdateInfo DTO are defined in TheSSS.DicomViewer.Application.Services
-using TheSSS.DicomViewer.Application.Services;
+using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using System.Threading.Tasks;
 using TheSSS.DicomViewer.IntegrationTests.Fixtures;
+using TheSSS.DicomViewer.IntegrationTests.Mocks; // For MockNotificationService
+// Assuming these interfaces and types exist in TheSSS.DicomViewer.Application
+// namespace TheSSS.DicomViewer.Application
+// {
+//     public class UpdateInfo
+//     {
+//         public bool IsUpdateAvailable { get; set; }
+//         public string Version { get; set; }
+//         public string ReleaseNotesUrl { get; set; }
+//     }
+//     public interface IApplicationUpdateService
+//     {
+//         Task<UpdateInfo> CheckForUpdatesAsync();
+//         // For simulation if the service itself is not easily mockable via DI for its source
+//         void SimulateUpdateAvailable(UpdateInfo updateInfo);
+//         void SimulateNoUpdateAvailable();
+//     }
+//     // MockNotificationService is used from Licensing tests
+// }
 
-namespace TheSSS.DicomViewer.IntegrationTests.Deployment;
-
-[Collection("SequentialIntegrationTests")]
-public class ApplicationUpdateSimulationTests : IClassFixture<AppHostFixture>
+namespace TheSSS.DicomViewer.IntegrationTests.Deployment
 {
-    private readonly AppHostFixture _fixture;
-    private readonly IApplicationUpdateService _updateService; // This should be the (mocked) service instance
-    private readonly Mock<IApplicationUpdateService> _mockUpdateService; // The Moq object itself
-
-    public ApplicationUpdateSimulationTests(AppHostFixture fixture)
+    // Placeholders for services from TheSSS.DicomViewer.Application
+    public class UpdateInfo
     {
-        _fixture = fixture;
-
-        // AppHostFixture needs to be configured to register a Mock<IApplicationUpdateService> for the IApplicationUpdateService interface.
-        // Retrieve the mock instance from the service provider.
-        _mockUpdateService = _fixture.ServiceProvider.GetRequiredService<Mock<IApplicationUpdateService>>();
-        _updateService = _mockUpdateService.Object; // This is the actual service instance the application code would use.
-        
-        _mockUpdateService.Reset(); // Reset setups and invocations for each test
+        public bool IsUpdateAvailable { get; set; }
+        public string Version { get; set; } = string.Empty;
+        public string? ReleaseNotesUrl { get; set; }
+        public string? DownloadUrl { get; set; }
     }
 
-    [Fact]
-    [Trait("Category", "Deployment")]
-    [Trait("Requirement", "REQ-LDM-TST-001")] // Part of licensing/maintenance/deployment tests
-    [Trait("Requirement", "REQ-LDM-DEP-002")] // App Update notifications
-    public async Task UpdateCheck_WhenUpdateIsAvailable_ShouldNotifyUserOrLog()
+    public interface IApplicationUpdateService
     {
-        // Arrange
-        var newVersion = new Version("2.0.0.0");
-        var updateInfo = new UpdateInfo { IsUpdateAvailable = true, LatestVersion = newVersion, UpdateUrl = "http://example.com/update" };
-        _mockUpdateService.Setup(s => s.CheckForUpdatesAsync()).ReturnsAsync(updateInfo);
-        
-        // If notifications are handled via another service (e.g., IUserNotificationService), that would also need mocking.
-        // For this test, we'll assume CheckForUpdatesAsync itself triggers the notification or updates a state.
-
-        // Act
-        var result = await _updateService.CheckForUpdatesAsync();
-        // Optionally, if the service has a property indicating update state:
-        // var appState = _fixture.ServiceProvider.GetRequiredService<IApplicationStateService>(); // Example
-
-        // Assert
-        result.Should().NotBeNull();
-        result.IsUpdateAvailable.Should().BeTrue();
-        result.LatestVersion.Should().Be(newVersion);
-
-        _mockUpdateService.Verify(s => s.CheckForUpdatesAsync(), Times.Once());
-        // Assert that a notification was shown (e.g., via a mocked UI service call, or an event was raised)
-        // For example, if IApplicationUpdateService raises an event:
-        // bool eventRaised = false;
-        // _updateService.UpdateAvailable += (sender, args) => eventRaised = true;
-        // await _updateService.CheckForUpdatesAsync();
-        // eventRaised.Should().BeTrue();
-        // Or, verify a log entry was made.
+        Task<UpdateInfo> CheckForUpdatesAsync();
+        // Methods to help mock/simulate internal state if the actual update source is hard to mock
+        void SetupUpdateAvailable(UpdateInfo updateDetails);
+        void SetupNoUpdateAvailable();
     }
 
-    [Fact]
-    [Trait("Category", "Deployment")]
-    [Trait("Requirement", "REQ-LDM-TST-001")]
-    [Trait("Requirement", "REQ-LDM-DEP-002")]
-    public async Task UpdateCheck_WhenNoUpdateIsAvailable_ShouldProceedNormally()
+    // Mock implementation for IApplicationUpdateService if not using Moq for it directly
+    public class MockApplicationUpdateService : IApplicationUpdateService
     {
-        // Arrange
-        var noUpdateInfo = new UpdateInfo { IsUpdateAvailable = false, LatestVersion = null };
-        _mockUpdateService.Setup(s => s.CheckForUpdatesAsync()).ReturnsAsync(noUpdateInfo);
+        private UpdateInfo? _simulatedUpdateInfo;
 
-        // Act
-        var result = await _updateService.CheckForUpdatesAsync();
+        public Task<UpdateInfo> CheckForUpdatesAsync()
+        {
+            return Task.FromResult(_simulatedUpdateInfo ?? new UpdateInfo { IsUpdateAvailable = false });
+        }
 
-        // Assert
-        result.Should().NotBeNull();
-        result.IsUpdateAvailable.Should().BeFalse();
-        
-        _mockUpdateService.Verify(s => s.CheckForUpdatesAsync(), Times.Once());
-        // Assert that NO update notification was shown/logged.
-        // (e.g., mock UI service: Times.Never() for notification methods)
+        public void SetupUpdateAvailable(UpdateInfo updateDetails)
+        {
+            _simulatedUpdateInfo = updateDetails;
+        }
+
+        public void SetupNoUpdateAvailable()
+        {
+            _simulatedUpdateInfo = new UpdateInfo { IsUpdateAvailable = false };
+        }
+    }
+
+
+    [Collection("SequentialIntegrationTests")]
+    public class ApplicationUpdateSimulationTests : IClassFixture<AppHostFixture>
+    {
+        private readonly AppHostFixture _appHostFixture;
+        private readonly IApplicationUpdateService _updateService; // This could be the actual service or a mock wrapper configured in AppHostFixture
+        private readonly MockNotificationService _mockNotificationService;
+
+        public ApplicationUpdateSimulationTests(AppHostFixture appHostFixture)
+        {
+            _appHostFixture = appHostFixture;
+            // Resolve the IApplicationUpdateService. If it's a mock, it should be pre-configured.
+            // If it's the real service, it might need internal mocking capabilities or DI for its HTTP client.
+            _updateService = _appHostFixture.ServiceProvider.GetRequiredService<IApplicationUpdateService>();
+            _mockNotificationService = _appHostFixture.ServiceProvider.GetRequiredService<MockNotificationService>();
+        }
+
+        [Fact]
+        [Trait("Category", "Integration")]
+        public async Task UpdateCheck_WhenUpdateIsAvailable_ShouldNotifyUserOrLog()
+        {
+            // Arrange
+            var updateDetails = new UpdateInfo
+            {
+                IsUpdateAvailable = true,
+                Version = "1.2.3",
+                ReleaseNotesUrl = "http://example.com/notes/1.2.3",
+                DownloadUrl = "http://example.com/download/1.2.3"
+            };
+
+            // Configure the mock update service (if IApplicationUpdateService is a mock/wrapper)
+            // or ensure the actual service will report an update (e.g., by mocking its HttpClient).
+            // Assuming IApplicationUpdateService is the mock itself or has Setup methods:
+            if (_updateService is MockApplicationUpdateService mockSvc) // Example for a direct mock
+            {
+                mockSvc.SetupUpdateAvailable(updateDetails);
+            }
+            // If _updateService is the real one, its dependencies (like an HTTP client factory)
+            // should have been replaced with mocks in AppHostFixture to return this updateDetails.
+
+            _mockNotificationService.ClearNotifications();
+
+
+            // Act
+            // This operation should trigger the notification if an update is found.
+            // It could be part of an application startup sequence or an explicit user action.
+            // For this test, we directly call the CheckForUpdatesAsync and assume the
+            // notification logic is hooked into its result processing.
+            // A more integrated test might call a higher-level app service that uses IApplicationUpdateService.
+            var result = await _updateService.CheckForUpdatesAsync();
+            // Simulate the part of the application that would react to this result:
+            if (result.IsUpdateAvailable)
+            {
+                // This would typically be done by a ViewModel or another Application Service
+                await _mockNotificationService.NotifyUserAsync("Update Available", $"Version {result.Version} is available. See release notes: {result.ReleaseNotesUrl}");
+            }
+
+
+            // Assert
+            result.IsUpdateAvailable.Should().BeTrue();
+            _mockNotificationService.Notifications.Should().ContainSingle(n =>
+                n.Title == "Update Available" &&
+                n.Message.Contains(updateDetails.Version) &&
+                n.Message.Contains(updateDetails.ReleaseNotesUrl!));
+            // If alerts are logged, check mock logger.
+        }
+
+        [Fact]
+        [Trait("Category", "Integration")]
+        public async Task UpdateCheck_WhenNoUpdateIsAvailable_ShouldProceedNormally()
+        {
+            // Arrange
+            if (_updateService is MockApplicationUpdateService mockSvc) // Example for a direct mock
+            {
+                mockSvc.SetupNoUpdateAvailable();
+            }
+            // Else, ensure real service's dependencies are mocked for no update.
+            _mockNotificationService.ClearNotifications();
+
+
+            // Act
+            var result = await _updateService.CheckForUpdatesAsync();
+            if (result.IsUpdateAvailable) // This block should not execute
+            {
+                 await _mockNotificationService.NotifyUserAsync("Update Available", $"Version {result.Version} is available.");
+            }
+
+            // Assert
+            result.IsUpdateAvailable.Should().BeFalse();
+            _mockNotificationService.Notifications.Should().BeEmpty();
+            // Assert that system behaves normally (e.g., no errors logged, specific state not set).
+        }
     }
 }

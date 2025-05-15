@@ -1,124 +1,120 @@
-// Assuming ISystemMonitoringOrchestrationService, IStorageMonitorService, IPacsConnectivityMonitorService interfaces
-// and PacsNodeStatus DTO are defined in TheSSS.DicomViewer.Application.Services
-using TheSSS.DicomViewer.Application.Services;
+using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Threading.Tasks;
 using TheSSS.DicomViewer.IntegrationTests.Fixtures;
-using TheSSS.DicomViewer.IntegrationTests.Mocks;
+using TheSSS.DicomViewer.IntegrationTests.Mocks; // For MockSmtpService, MockOdooLicensingApiClient
+// Assuming these interfaces and types exist in TheSSS.DicomViewer.Application
+// namespace TheSSS.DicomViewer.Application
+// {
+//     public interface ISystemMonitoringService
+//     {
+//         Task CheckSystemHealthAndTriggerAlertsAsync();
+//         void SimulateLowStorage(bool isLow); // For testing
+//         void SimulatePacsConnectionStatus(bool isConnected); // For testing
+//     }
+//     // ILicensingOrchestrationService is defined in LicenseWorkflowTests.cs context
+// }
 
-namespace TheSSS.DicomViewer.IntegrationTests.Maintenance;
-
-[Collection("SequentialIntegrationTests")]
-public class AlertSystemTests : IClassFixture<AppHostFixture>
+namespace TheSSS.DicomViewer.IntegrationTests.Maintenance
 {
-    private readonly AppHostFixture _fixture;
-    private readonly ISystemMonitoringOrchestrationService _monitoringService;
-    private readonly MockSmtpService _mockSmtpService;
-    private readonly MockOdooLicensingApiClient _mockLicensingClient;
-    private readonly Mock<IStorageMonitorService> _mockStorageMonitor;
-    private readonly Mock<IPacsConnectivityMonitorService> _mockPacsMonitor;
-    private readonly string _adminEmail = "admin@dicomviewer.test"; // Example admin email
-
-    public AlertSystemTests(AppHostFixture fixture)
+    // Placeholders for services from TheSSS.DicomViewer.Application
+    public interface ISystemMonitoringService
     {
-        _fixture = fixture;
-
-        // Resolve the mock SMTP service and Licensing API client
-        _mockSmtpService = (MockSmtpService)_fixture.ServiceProvider.GetRequiredService<ISmtpService>();
-        _mockLicensingClient = (MockOdooLicensingApiClient)_fixture.ServiceProvider.GetRequiredService<ILicensingApiClient>();
-
-        // For services like IStorageMonitorService and IPacsConnectivityMonitorService,
-        // AppHostFixture needs to be configured to provide mocks for them if SystemMonitoringOrchestrationService depends on them.
-        // We'll assume AppHostFixture has been set up to allow resolving these mocks.
-        // If not, these mocks would need to be manually injected into a SystemMonitoringOrchestrationService instance.
-        _mockStorageMonitor = _fixture.ServiceProvider.GetService<Mock<IStorageMonitorService>>() ?? new Mock<IStorageMonitorService>();
-        _mockPacsMonitor = _fixture.ServiceProvider.GetService<Mock<IPacsConnectivityMonitorService>>() ?? new Mock<IPacsConnectivityMonitorService>();
-        
-        // Resolve the SystemMonitoringOrchestrationService itself.
-        // If SystemMonitoringOrchestrationService takes dependencies on IStorageMonitorService/IPacsConnectivityMonitorService,
-        // AppHostFixture must ensure these are resolved to the mocks above.
-        _monitoringService = _fixture.ServiceProvider.GetRequiredService<ISystemMonitoringOrchestrationService>();
-
-
-        // Clear state before each test
-        _mockSmtpService.ClearSentEmails();
-        _mockLicensingClient.Mock.Reset();
-        _mockStorageMonitor.Reset();
-        _mockPacsMonitor.Reset();
+        Task CheckSystemHealthAndTriggerAlertsAsync();
+        void SimulateLowStorage(bool isLow);
+        void SimulatePacsConnectionStatus(bool isConnected);
+        void SimulateCriticalError(string errorMessage); // New method for generic error alerts
     }
 
-    [Fact]
-    [Trait("Category", "Maintenance")]
-    [Trait("Requirement", "REQ-LDM-TST-001")]
-    [Trait("Requirement", "REQ-LDM-LIC-005")] // License expiry alert
-    [Trait("Requirement", "REQ-7-024")]       // System alerts
-    [Trait("Requirement", "REQ-LDM-MNT-011")]  // Alert dispatch
-    public async Task AlertGeneration_WhenLicenseApproachingExpiry_ShouldNotifyAdministrator()
+    // ILicensingOrchestrationService placeholder is assumed to be available from other files or global usings.
+    // If not, a minimal one would be:
+    // public interface ILicensingOrchestrationService { Task CheckLicenseAndTriggerAlertsAsync(); }
+
+
+    [Collection("SequentialIntegrationTests")]
+    public class AlertSystemTests : IClassFixture<AppHostFixture>
     {
-        // Arrange
-        // Simulate license approaching expiry. LicensingOrchestrationService would use ILicensingApiClient.
-        _mockLicensingClient.Mock.Setup(m => m.ValidateLicenseAsync(It.IsAny<string>()))
-            .ReturnsAsync(new LicenseValidationResult { IsValid = true, Status = "ActiveWarning", ExpiryDate = DateTime.UtcNow.AddDays(5).ToString("o") }); // Example near expiry
+        private readonly AppHostFixture _appHostFixture;
+        private readonly MockSmtpService _mockSmtpService;
+        private readonly ILicensingOrchestrationService _licensingService; // Used to trigger license-related alerts
+        private readonly ISystemMonitoringService _monitoringService; // Used to trigger system-related alerts
+        private readonly MockOdooLicensingApiClient _mockOdooClient;
 
-        // Act: Trigger the system check that would evaluate license status.
-        // This assumes SystemMonitoringOrchestrationService or LicensingOrchestrationService has logic to check and raise alerts.
-        await _monitoringService.PerformSystemChecksAsync(); // Assuming a method that includes license checks
+        public AlertSystemTests(AppHostFixture appHostFixture)
+        {
+            _appHostFixture = appHostFixture;
+            _mockSmtpService = _appHostFixture.ServiceProvider.GetRequiredService<MockSmtpService>();
+            _licensingService = _appHostFixture.ServiceProvider.GetRequiredService<ILicensingOrchestrationService>();
+            _monitoringService = _appHostFixture.ServiceProvider.GetRequiredService<ISystemMonitoringService>();
+            _mockOdooClient = _appHostFixture.ServiceProvider.GetRequiredService<MockOdooLicensingApiClient>();
+        }
 
-        // Assert
-        _mockSmtpService.SentEmails.Should().HaveCount(1, "One email alert should be sent for license warning.");
-        var email = _mockSmtpService.SentEmails.First();
-        email.Recipient.Should().Be(_adminEmail);
-        email.Subject.Should().ContainEquivalentOf("License Expiry Warning", FluentAssertions.Equivalency.StringComparisonOptions.IgnoreCase);
-        email.Body.Should().ContainEquivalentOf("approaching expiry", FluentAssertions.Equivalency.StringComparisonOptions.IgnoreCase);
-    }
+        [Fact]
+        [Trait("Category", "Integration")]
+        public async Task AlertGeneration_WhenLicenseApproachingExpiry_ShouldNotifyAdministrator()
+        {
+            // Arrange
+            _mockSmtpService.ClearSentEmails();
+            // Configure MockOdooLicensingApiClient to return a license that is approaching expiry
+            // The ILicensingOrchestrationService should use this mock when checking.
+            var expiryDate = DateTime.UtcNow.AddDays(10); // Example: 10 days to expiry
+            _mockOdooClient.SetupValidationResponseForAnyKey(
+                new Application.ILicensingApiClient.LicenseValidationResult { IsValid = true, ExpiryDate = expiryDate, IsApproachingExpiry = true });
 
-    [Fact]
-    [Trait("Category", "Maintenance")]
-    [Trait("Requirement", "REQ-LDM-TST-001")]
-    [Trait("Requirement", "REQ-7-024")]
-    [Trait("Requirement", "REQ-LDM-MNT-011")]
-    public async Task AlertGeneration_WhenStorageSpaceLow_ShouldTriggerWarningAlert()
-    {
-        // Arrange
-        // Simulate low storage space through the IStorageMonitorService mock
-        _mockStorageMonitor.Setup(s => s.GetStorageStatusAsync(It.IsAny<string>()))
-            .ReturnsAsync(new StorageStatus { IsLowSpace = true, FreeSpacePercentage = 3.5, MonitoredPath = "C:\\DicomData" });
-        // Ensure SystemMonitoringOrchestrationService is configured to use this mocked IStorageMonitorService.
+            // Act
+            // Trigger the process that checks license status and sends alerts.
+            // This might be part of PerformStartupLicenseCheckAsync or a dedicated method.
+            // For this test, let's assume PerformStartupLicenseCheckAsync also handles alert logic for expiry.
+            await _licensingService.PerformStartupLicenseCheckAsync(); // Or a more specific method like CheckLicenseAndTriggerAlertsAsync()
 
-        // Act
-        await _monitoringService.PerformSystemChecksAsync(); // Assuming this includes storage checks
+            // Assert
+            _mockSmtpService.SentEmails.Should().ContainSingle(email =>
+                email.Subject.Contains("License Expiry Warning") &&
+                email.Body.Contains("approaching expiration") &&
+                email.Recipient.Contains("admin")); // Assuming admin email is configured
+        }
 
-        // Assert
-        _mockSmtpService.SentEmails.Should().HaveCount(1, "One email alert should be sent for low storage.");
-        var email = _mockSmtpService.SentEmails.First();
-        email.Recipient.Should().Be(_adminEmail);
-        email.Subject.Should().ContainEquivalentOf("Low Storage Space Warning", FluentAssertions.Equivalency.StringComparisonOptions.IgnoreCase);
-        email.Body.Should().ContainEquivalentOf("running low on space", FluentAssertions.Equivalency.StringComparisonOptions.IgnoreCase)
-            .And.Contain("C:\\DicomData")
-            .And.Contain("3.5%");
-    }
+        [Fact]
+        [Trait("Category", "Integration")]
+        public async Task AlertGeneration_WhenStorageSpaceLow_ShouldTriggerWarningAlert()
+        {
+            // Arrange
+            _mockSmtpService.ClearSentEmails();
+            // Simulate low storage condition. This might be done by configuring the ISystemMonitoringService
+            // or mocking a dependency it uses (e.g., a service that checks disk space).
+            // For this test, assume ISystemMonitoringService has a method to simulate this for testing.
+            _monitoringService.SimulateLowStorage(true);
 
-    [Fact]
-    [Trait("Category", "Maintenance")]
-    [Trait("Requirement", "REQ-LDM-TST-001")]
-    [Trait("Requirement", "REQ-7-024")]
-    [Trait("Requirement", "REQ-LDM-MNT-011")]
-    public async Task AlertGeneration_WhenPacsConnectionLost_ShouldTriggerConnectivityAlert()
-    {
-        // Arrange
-        var failedPacsNode = new PacsNodeStatus { NodeName = "PACS_MAIN", IsConnected = false, LastError = "Connection timed out" };
-        _mockPacsMonitor.Setup(p => p.CheckAllNodesConnectivityAsync())
-            .ReturnsAsync(new List<PacsNodeStatus> { failedPacsNode });
-        // Ensure SystemMonitoringOrchestrationService uses this mocked IPacsConnectivityMonitorService.
+            // Act
+            // Trigger the system monitoring check.
+            await _monitoringService.CheckSystemHealthAndTriggerAlertsAsync();
 
-        // Act
-        await _monitoringService.PerformSystemChecksAsync(); // Assuming this includes PACS checks
+            // Assert
+            _mockSmtpService.SentEmails.Should().ContainSingle(email =>
+                email.Subject.Contains("Low Storage Space Warning") &&
+                email.Body.Contains("critically low") &&
+                email.Recipient.Contains("admin"));
+        }
 
-        // Assert
-        _mockSmtpService.SentEmails.Should().HaveCount(1, "One email alert should be sent for PACS connectivity issue.");
-        var email = _mockSmtpService.SentEmails.First();
-        email.Recipient.Should().Be(_adminEmail);
-        email.Subject.Should().ContainEquivalentOf("PACS Connectivity Alert", FluentAssertions.Equivalency.StringComparisonOptions.IgnoreCase);
-        email.Body.Should().ContainEquivalentOf("Lost connection", FluentAssertions.Equivalency.StringComparisonOptions.IgnoreCase)
-            .And.Contain("PACS_MAIN")
-            .And.Contain("Connection timed out");
+        [Fact]
+        [Trait("Category", "Integration")]
+        public async Task AlertGeneration_WhenPacsConnectionLost_ShouldTriggerConnectivityAlert()
+        {
+            // Arrange
+            _mockSmtpService.ClearSentEmails();
+            // Simulate PACS connection loss.
+            _monitoringService.SimulatePacsConnectionStatus(false); // false means connection lost
+
+            // Act
+            await _monitoringService.CheckSystemHealthAndTriggerAlertsAsync();
+
+            // Assert
+            _mockSmtpService.SentEmails.Should().ContainSingle(email =>
+                email.Subject.Contains("PACS Connectivity Alert") &&
+                email.Body.Contains("connection to PACS") &&
+                email.Body.Contains("lost") &&
+                email.Recipient.Contains("admin"));
+        }
     }
 }
