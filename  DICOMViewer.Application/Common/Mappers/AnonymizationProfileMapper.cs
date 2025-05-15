@@ -1,15 +1,14 @@
 using AutoMapper;
 using TheSSS.DICOMViewer.Application.Anonymization.DTOs;
-using TheSSS.DICOMViewer.Domain.Entities;
 
-namespace TheSSS.DICOMViewer.Application.Common.Mappers;
-
-public class AnonymizationProfileMapper : Profile
+namespace TheSSS.DICOMViewer.Application.Common.Mappers
 {
-    public AnonymizationProfileMapper()
+    public class AnonymizationProfileMapper : Profile
     {
-        CreateMap<AnonymizationProfile, AnonymizationProfileDto>().ReverseMap();
-        CreateMap<MetadataRule, MetadataRuleDto>().ReverseMap();
-        CreateMap<PixelAnonymizationTemplate, PixelAnonymizationTemplateDto>().ReverseMap();
+        public AnonymizationProfileMapper()
+        {
+            CreateMap<AnonymizationProfileDto, Domain.AnonymizationProfile>()
+                .ReverseMap();
+        }
     }
 }

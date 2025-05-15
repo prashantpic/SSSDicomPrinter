@@ -1,38 +1,33 @@
-using MediatR;
 using System.Threading;
 using System.Threading.Tasks;
+using MediatR;
 using TheSSS.DICOMViewer.Application.Interfaces.Infrastructure;
 
-namespace TheSSS.DICOMViewer.Application.Common.Behaviours;
-
-public class AuditingBehaviour<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse> where TRequest : IRequest<TResponse>
+namespace TheSSS.DICOMViewer.Application.Common.Behaviours
 {
-    private readonly IAuditLogRepositoryAdapter _auditLogRepository;
-
-    public AuditingBehaviour(IAuditLogRepositoryAdapter auditLogRepository)
+    public class AuditingBehaviour<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
+        where TRequest : notnull
     {
-        _auditLogRepository = auditLogRepository;
-    }
+        private readonly IAuditLogRepositoryAdapter _auditLogRepository;
 
-    public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
-    {
-        if (!typeof(TRequest).Name.EndsWith("Command"))
-            return await next();
+        public AuditingBehaviour(IAuditLogRepositoryAdapter auditLogRepository)
+        {
+            _auditLogRepository = auditLogRepository;
+        }
 
-        var eventType = typeof(TRequest).Name;
-        var outcome = "Success";
-
-        try
+        public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
         {
             var response = await next();
-            await _auditLogRepository.LogEventAsync(eventType, "Operation succeeded", outcome);
+            
+            if (request is IBaseRequest)
+            {
+                await _auditLogRepository.LogEventAsync(
+                    eventType: request.GetType().Name,
+                    eventDetails: "Command executed successfully",
+                    outcome: "Success");
+            }
+            
             return response;
-        }
-        catch (System.Exception ex)
-        {
-            outcome = "Failure";
-            await _auditLogRepository.LogEventAsync(eventType, $"Error: {ex.Message}", outcome);
-            throw;
         }
     }
 }

@@ -1,39 +1,34 @@
-using MediatR;
-using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using MediatR;
+using Microsoft.Extensions.Logging;
 
-namespace TheSSS.DICOMViewer.Application.Common.Behaviours;
-
-public class LoggingBehaviour<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse> where TRequest : IRequest<TResponse>
+namespace TheSSS.DICOMViewer.Application.Common.Behaviours
 {
-    private readonly ILogger<TRequest> _logger;
-
-    public LoggingBehaviour(ILogger<TRequest> logger)
+    public class LoggingBehaviour<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
+        where TRequest : notnull
     {
-        _logger = logger;
-    }
+        private readonly ILogger<TRequest> _logger;
 
-    public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
-    {
-        var requestName = typeof(TRequest).Name;
-        var stopwatch = Stopwatch.StartNew();
-
-        _logger.LogInformation("Processing request {RequestName}", requestName);
-        
-        try
+        public LoggingBehaviour(ILogger<TRequest> logger)
         {
-            var response = await next();
-            stopwatch.Stop();
-            _logger.LogInformation("Completed request {RequestName} in {ElapsedMs}ms", requestName, stopwatch.ElapsedMilliseconds);
-            return response;
+            _logger = logger;
         }
-        catch (System.Exception ex)
+
+        public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
         {
-            stopwatch.Stop();
-            _logger.LogError(ex, "Request {RequestName} failed after {ElapsedMs}ms", requestName, stopwatch.ElapsedMilliseconds);
-            throw;
+            var requestName = typeof(TRequest).Name;
+            _logger.LogInformation("Handling {RequestName}", requestName);
+            
+            var timer = Stopwatch.StartNew();
+            var response = await next();
+            timer.Stop();
+            
+            _logger.LogInformation("Completed {RequestName} in {ElapsedMs}ms", 
+                requestName, timer.ElapsedMilliseconds);
+            
+            return response;
         }
     }
 }

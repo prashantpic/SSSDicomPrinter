@@ -1,9 +1,10 @@
 using System.Threading.Tasks;
 using TheSSS.DICOMViewer.Application.DicomNetwork.DTOs;
 
-namespace TheSSS.DICOMViewer.Application.DicomNetwork.Interfaces;
-
-public interface IDicomNetworkService
+namespace TheSSS.DICOMViewer.Application.DicomNetwork.Interfaces
 {
-    Task<DicomNetworkResultDto> VerifyPacsConnectivityAsync(string pacsNodeId);
+    public interface IDicomNetworkService
+    {
+        Task<DicomNetworkResultDto> VerifyPacsConnectivityAsync(string pacsNodeId);
+    }
 }

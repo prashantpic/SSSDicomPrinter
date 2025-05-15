@@ -1,8 +1,8 @@
-namespace TheSSS.DICOMViewer.Application.DicomNetwork.DTOs;
-
-public record DicomNetworkResultDto
+namespace TheSSS.DICOMViewer.Application.DicomNetwork.DTOs
 {
-    public bool Success { get; init; }
-    public string Message { get; init; } = default!;
-    public string? Detail { get; init; }
+    public record DicomNetworkResultDto(
+        bool Success,
+        string Message,
+        string Detail
+    );
 }

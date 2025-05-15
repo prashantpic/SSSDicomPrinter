@@ -1,14 +1,14 @@
 using System.Collections.Generic;
 
-namespace TheSSS.DICOMViewer.Application.Anonymization.DTOs;
-
-public record AnonymizationProfileDto
+namespace TheSSS.DICOMViewer.Application.Anonymization.DTOs
 {
-    public string ProfileId { get; init; } = default!;
-    public string ProfileName { get; init; } = default!;
-    public string ProfileDescription { get; init; } = default!;
-    public List<MetadataRuleDto> MetadataRules { get; init; } = new();
-    public string? PredefinedRuleSetName { get; init; }
-    public int? PixelAnonymizationTemplateId { get; init; }
-    public bool IsReadOnly { get; init; }
+    public record AnonymizationProfileDto(
+        string ProfileId,
+        string ProfileName,
+        string ProfileDescription,
+        List<MetadataRuleDto> MetadataRules,
+        string PredefinedRuleSetName,
+        int? PixelAnonymizationTemplateId,
+        bool IsReadOnly
+    );
 }

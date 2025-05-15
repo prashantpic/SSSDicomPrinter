@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 
-namespace TheSSS.DICOMViewer.Application.Common.DTOs;
-
-public record DicomValidationResultDto
+namespace TheSSS.DICOMViewer.Application.Common.DTOs
 {
-    public bool IsCompliant { get; init; }
-    public List<string> ValidationErrors { get; init; } = new();
+    public record DicomValidationResultDto(
+        bool IsCompliant,
+        List<string> ValidationErrors
+    );
 }

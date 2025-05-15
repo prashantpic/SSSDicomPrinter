@@ -1,7 +1,7 @@
-namespace TheSSS.DICOMViewer.Application.Anonymization.DTOs;
-
-public record AnonymizationRequestDto
+namespace TheSSS.DICOMViewer.Application.Anonymization.DTOs
 {
-    public string SopInstanceUid { get; init; } = default!;
-    public string AnonymizationProfileId { get; init; } = default!;
+    public record AnonymizationRequestDto(
+        string SopInstanceUid,
+        string AnonymizationProfileId
+    );
 }

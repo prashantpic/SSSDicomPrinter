@@ -1,9 +1,9 @@
-namespace TheSSS.DICOMViewer.Application.Anonymization.DTOs;
-
-public record MetadataRuleDto
+namespace TheSSS.DICOMViewer.Application.Anonymization.DTOs
 {
-    public string DicomTagId { get; init; } = default!;
-    public string Action { get; init; } = default!;
-    public string? ReplacementValue { get; init; }
-    public string? DateOffsetParameters { get; init; }
+    public record MetadataRuleDto(
+        string DicomTagId,
+        string Action,
+        string ReplacementValue,
+        string DateOffsetParameters
+    );
 }

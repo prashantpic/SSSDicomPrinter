@@ -1,8 +1,7 @@
-namespace TheSSS.DICOMViewer.Application.DicomImport.DTOs;
-
-public record ImportRequestDto
+namespace TheSSS.DICOMViewer.Application.DicomImport.DTOs
 {
-    public IEnumerable<string>? FilePaths { get; init; }
-    public string? DirectoryPath { get; init; }
-    public bool IsDirectoryImport { get; init; }
+    public record ImportRequestDto(
+        IEnumerable<string> FilePaths,
+        string DirectoryPath
+    );
 }

@@ -1,8 +1,8 @@
-namespace TheSSS.DICOMViewer.Application.Anonymization.DTOs;
-
-public record PixelAnonymizationTemplateDto
+namespace TheSSS.DICOMViewer.Application.Anonymization.DTOs
 {
-    public int TemplateId { get; init; }
-    public string TemplateName { get; init; } = default!;
-    public string TemplateDefinitionJson { get; init; } = default!;
+    public record PixelAnonymizationTemplateDto(
+        int TemplateId,
+        string TemplateName,
+        string TemplateDefinitionJson
+    );
 }
