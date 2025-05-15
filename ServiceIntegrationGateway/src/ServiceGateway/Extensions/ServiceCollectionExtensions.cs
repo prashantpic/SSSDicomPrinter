@@ -1,7 +1,5 @@
-using System;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using RestSharp;
 using TheSSS.DICOMViewer.Integration.Adapters;
 using TheSSS.DICOMViewer.Integration.Configuration;
 using TheSSS.DICOMViewer.Integration.Coordinators;
@@ -10,78 +8,64 @@ using TheSSS.DICOMViewer.Integration.Policies;
 using TheSSS.DICOMViewer.Integration.RateLimiting;
 using TheSSS.DICOMViewer.Integration.Services;
 
-// Assuming these dependencies are registered elsewhere as per the overall architecture:
-// using TheSSS.DICOMViewer.Common.Logging; // For ILoggerAdapter<T>
-// using TheSSS.DICOMViewer.Common.Security; // For ISecureStorageService
-// using TheSSS.DICOMViewer.Infrastructure.Interfaces; // For IDicomLowLevelClient
+// Assuming REPO-INFRA defines IDicomLowLevelClient in a namespace like TheSSS.DICOMViewer.Infrastructure.Dicom
+// using TheSSS.DICOMViewer.Infrastructure.Dicom; 
+// Assuming REPO-CROSS-CUTTING defines ILoggerAdapter, IConfigurationService etc.
+// using TheSSS.DICOMViewer.CrossCutting.Logging;
+// using TheSSS.DICOMViewer.CrossCutting.Configuration;
+// using TheSSS.DICOMViewer.CrossCutting.Security;
 
 namespace TheSSS.DICOMViewer.Integration.Extensions
 {
-    /// <summary>
-    /// Extension methods for IServiceCollection to register all gateway services, adapters,
-    /// coordinators, and configurations for dependency injection.
-    /// </summary>
     public static class ServiceCollectionExtensions
     {
-        /// <summary>
-        /// Adds the Service Integration Gateway components and configurations to the IServiceCollection.
-        /// This method assumes that common services like ILoggerAdapter, ISecureStorageService, and IDicomLowLevelClient
-        /// are registered by their respective modules/repositories before this is called.
-        /// </summary>
-        /// <param name="services">The IServiceCollection to add the services to.</param>
-        /// <param name="configuration">The application configuration, used to bind settings.</param>
-        /// <returns>The IServiceCollection for chaining, allowing further service registrations.</returns>
-        /// <exception cref="ArgumentNullException">Thrown if services or configuration is null.</exception>
-        public static IServiceCollection AddServiceIntegrationGateway(this IServiceCollection services, IConfiguration configuration)
+        public static IServiceCollection AddServiceIntegrationGateway(
+            this IServiceCollection services,
+            IConfiguration configuration)
         {
-            if (services == null) throw new ArgumentNullException(nameof(services));
-            if (configuration == null) throw new ArgumentNullException(nameof(configuration));
+            // Bind configuration settings
+            // Main settings container
+            services.Configure<ServiceGatewaySettings>(configuration.GetSection(nameof(ServiceGatewaySettings)));
 
-            // 1. Bind configuration sections to strongly-typed settings objects
-            // These will be available via IOptions<T>
-            services.Configure<ServiceGatewaySettings>(configuration.GetSection("ServiceGateway"));
-            services.Configure<OdooApiSettings>(configuration.GetSection("ServiceGateway:OdooApi"));
-            services.Configure<SmtpSettings>(configuration.GetSection("ServiceGateway:Smtp"));
-            services.Configure<WindowsPrintSettings>(configuration.GetSection("ServiceGateway:WindowsPrint"));
-            services.Configure<DicomGatewaySettings>(configuration.GetSection("ServiceGateway:Dicom"));
-            services.Configure<ResilienceSettings>(configuration.GetSection("ServiceGateway:Resilience"));
-            services.Configure<RateLimitSettings>(configuration.GetSection("ServiceGateway:RateLimiting"));
-            services.Configure<CredentialManagerSettings>(configuration.GetSection("ServiceGateway:CredentialManager"));
+            // Specific settings for adapters and services
+            // These are assumed to be nested under ServiceGatewaySettings in the configuration file,
+            // e.g., "ServiceGatewaySettings:OdooApiSettings"
+            services.Configure<OdooApiSettings>(configuration.GetSection($"{nameof(ServiceGatewaySettings)}:{nameof(OdooApiSettings)}"));
+            services.Configure<SmtpSettings>(configuration.GetSection($"{nameof(ServiceGatewaySettings)}:{nameof(SmtpSettings)}"));
+            services.Configure<WindowsPrintSettings>(configuration.GetSection($"{nameof(ServiceGatewaySettings)}:{nameof(WindowsPrintSettings)}"));
+            services.Configure<DicomGatewaySettings>(configuration.GetSection($"{nameof(ServiceGatewaySettings)}:{nameof(DicomGatewaySettings)}"));
+            services.Configure<ResilienceSettings>(configuration.GetSection($"{nameof(ServiceGatewaySettings)}:{nameof(ResilienceSettings)}"));
+            services.Configure<RateLimitSettings>(configuration.GetSection($"{nameof(ServiceGatewaySettings)}:{nameof(RateLimitSettings)}"));
+            services.Configure<CredentialManagerSettings>(configuration.GetSection($"{nameof(ServiceGatewaySettings)}:{nameof(CredentialManagerSettings)}"));
 
-            // 2. Register shared utilities/clients needed by adapters within this gateway
-            // Register RestClient as a Singleton. Adapters that use it will get this instance.
-            // Alternatively, use IHttpClientFactory for HttpClient based interactions.
-            // Since RestSharp is specified, we register its client.
-            services.AddSingleton<RestClient>(sp =>
-            {
-                // Basic RestClient. BaseUrl will be set in the OdooApiAdapter from its specific settings.
-                // If RestClient needs more global configuration, it can be done here.
-                return new RestClient();
-            });
+            // Register Adapters
+            services.AddScoped<IOdooApiAdapter, OdooApiAdapter>();
+            services.AddScoped<ISmtpServiceAdapter, SmtpServiceAdapter>();
+            services.AddScoped<IWindowsPrintAdapter, WindowsPrintAdapter>();
+            services.AddScoped<IDicomNetworkAdapter, DicomNetworkAdapter>();
 
-            // 3. Register core gateway services
-            // These services are typically stateless or manage their state in a way suitable for Singleton.
-            services.AddSingleton<IUnifiedErrorHandlingService, UnifiedErrorHandlingService>();
-            services.AddSingleton<ICredentialManager, CredentialManager>();
+            // Register Services
+            services.AddScoped<ICredentialManager, CredentialManager>();
+            services.AddScoped<IUnifiedErrorHandlingService, UnifiedErrorHandlingService>();
+
+            // Register Resilience Policy Provider
+            // Policies are typically configured once and reused, so Singleton is appropriate.
             services.AddSingleton<IResiliencePolicyProvider, ResiliencePolicyProvider>();
+
+            // Register Rate Limiting
+            // ConfigurableRateLimiter will manage multiple internal limiters based on configuration.
+            // It's stateful (maintains limiter states) and shared, so Singleton.
             services.AddSingleton<IRateLimiter, ConfigurableRateLimiter>();
-            // If a factory pattern was strictly required for RateLimiter:
-            // services.AddSingleton<RateLimiterFactory>();
-            // services.AddSingleton<IRateLimiter>(provider =>
-            //     provider.GetRequiredService<RateLimiterFactory>().CreateRateLimiter());
+            // If RateLimiterFactory is a separate entity for creating RateLimiter instances and is used by ConfigurableRateLimiter,
+            // it might be registered here as well, e.g., services.AddSingleton<RateLimiterFactory>();
+            // However, based on the description, ConfigurableRateLimiter seems to be the primary IRateLimiter implementation.
 
+            // Register Coordinator
+            services.AddScoped<IExternalServiceCoordinator, ExternalServiceCoordinator>();
 
-            // 4. Register service adapters
-            // Adapters are often stateless but can be Scoped or Transient if they manage
-            // per-request/per-operation state or resources. Transient is a safe default.
-            services.AddTransient<IOdooApiAdapter, OdooApiAdapter>();
-            services.AddTransient<ISmtpServiceAdapter, SmtpServiceAdapter>();
-            services.AddTransient<IWindowsPrintAdapter, WindowsPrintAdapter>();
-            services.AddTransient<IDicomNetworkAdapter, DicomNetworkAdapter>();
-
-            // 5. Register the main coordinator/facade
-            // The coordinator orchestrates calls to adapters. Transient or Scoped is appropriate.
-            services.AddTransient<IExternalServiceCoordinator, ExternalServiceCoordinator>();
+            // Note: Dependencies from external repositories like IDicomLowLevelClient (REPO-INFRA)
+            // and ILoggerAdapter (REPO-CROSS-CUTTING) are assumed to be registered 
+            // by the main application's composition root.
 
             return services;
         }
