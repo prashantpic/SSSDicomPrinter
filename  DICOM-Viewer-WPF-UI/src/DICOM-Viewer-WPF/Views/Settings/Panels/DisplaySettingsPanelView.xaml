@@ -1,0 +1,17 @@
+<UserControl x:Class="TheSSS.DicomViewer.Presentation.Views.Settings.Panels.DisplaySettingsPanelView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:TheSSS.DicomViewer.Presentation.ViewModels.Settings.Panels"
+             mc:Ignorable="d"
+             d:DesignHeight="300" d:DesignWidth="400"
+             d:DataContext="{d:DesignInstance vm:DisplaySettingsPanelViewModel}">
+    <StackPanel Margin="10">
+        <ComboBox ItemsSource="{Binding AvailableThemes}"
+                  SelectedItem="{Binding SelectedTheme}"
+                  Margin="0,0,0,10"/>
+        <CheckBox Content="High Contrast Mode"
+                  IsChecked="{Binding IsHighContrastEnabled}"
+                  Margin="0,0,0,10"/>
+    </StackPanel>
+</UserControl>
