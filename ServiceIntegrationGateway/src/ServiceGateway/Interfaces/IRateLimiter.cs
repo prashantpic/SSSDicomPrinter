@@ -4,16 +4,17 @@ using System.Threading.Tasks;
 namespace TheSSS.DICOMViewer.Integration.Interfaces;
 
 /// <summary>
-/// Defines a contract for acquiring a permit to proceed with an operation, 
-/// potentially blocking or delaying if the rate limit for a given resource key has been exceeded.
+/// Defines a contract for acquiring a permit to proceed with an operation, potentially blocking or delaying 
+/// if the rate limit for a given resource key has been exceeded. This interface is for API rate limiting logic, 
+/// enabling services to acquire permits before making external calls.
 /// </summary>
 public interface IRateLimiter
 {
     /// <summary>
-    /// Acquires a permit for a specific resource, waiting if necessary until a permit is available or the operation is canceled.
+    /// Attempts to acquire a permit to proceed with an operation for a given resource.
     /// </summary>
-    /// <param name="resourceKey">A key identifying the rate-limited resource or operation.</param>
-    /// <param name="cancellationToken">A token to cancel the waiting operation.</param>
-    /// <returns>A task representing the asynchronous permit acquisition.</returns>
+    /// <param name="resourceKey">A key identifying the resource (e.g., "OdooApi", "DicomNetwork").</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A Task that completes when a permit is acquired, potentially after waiting.</returns>
     Task AcquirePermitAsync(string resourceKey, CancellationToken cancellationToken = default);
 }

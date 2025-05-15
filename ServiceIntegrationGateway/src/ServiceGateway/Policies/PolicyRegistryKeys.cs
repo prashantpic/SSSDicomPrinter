@@ -3,56 +3,32 @@ namespace TheSSS.DICOMViewer.Integration.Policies;
 /// <summary>
 /// Provides a centralized, type-safe way to reference specific resilience policies 
 /// (e.g., 'OdooApiRetryPolicy', 'DicomCircuitBreakerPolicy') throughout the gateway.
+/// This class defines static constant string keys used to identify and retrieve specific Polly policies 
+/// from the IResiliencePolicyProvider or a PolicyRegistry.
 /// </summary>
 public static class PolicyRegistryKeys
 {
     /// <summary>
-    /// Default retry policy for general transient errors.
+    /// Policy key for Odoo API interactions.
     /// </summary>
-    public const string DefaultRetryPolicy = "DefaultRetryPolicy";
+    public const string OdooApiPolicy = "OdooApiPolicy";
 
     /// <summary>
-    /// Default circuit breaker policy for general service unavailability.
+    /// Policy key for SMTP service interactions.
     /// </summary>
-    public const string DefaultCircuitBreakerPolicy = "DefaultCircuitBreakerPolicy";
+    public const string SmtpPolicy = "SmtpPolicy";
 
     /// <summary>
-    /// Default timeout policy.
+    /// Policy key for Windows Print service interactions (if resilience is applied).
     /// </summary>
-    public const string DefaultTimeoutPolicy = "DefaultTimeoutPolicy";
+    public const string WindowsPrintPolicy = "WindowsPrintPolicy";
 
     /// <summary>
-    /// Resilience policy specifically for Odoo API calls.
+    /// Policy key for DICOM network operations.
     /// </summary>
-    public const string OdooApiResiliencePolicy = "OdooApiResiliencePolicy";
+    public const string DicomNetworkPolicy = "DicomNetworkPolicy";
 
-    /// <summary>
-    /// Resilience policy specifically for SMTP service calls.
-    /// </summary>
-    public const string SmtpServiceResiliencePolicy = "SmtpServiceResiliencePolicy";
-
-    /// <summary>
-    /// General resilience policy for DICOM network operations.
-    /// </summary>
-    public const string DicomNetworkResiliencePolicy = "DicomNetworkResiliencePolicy";
-    
-    /// <summary>
-    /// Resilience policy specifically for DICOM C-STORE operations.
-    /// </summary>
-    public const string DicomCStoreResiliencePolicy = "DicomCStoreResiliencePolicy";
-
-    /// <summary>
-    /// Resilience policy specifically for DICOM C-ECHO operations.
-    /// </summary>
-    public const string DicomCEchoResiliencePolicy = "DicomCEchoResiliencePolicy";
-
-    /// <summary>
-    /// Resilience policy specifically for DICOM C-FIND operations.
-    /// </summary>
-    public const string DicomCFindResiliencePolicy = "DicomCFindResiliencePolicy";
-
-    /// <summary>
-    /// Resilience policy specifically for DICOM C-MOVE operations.
-    /// </summary>
-    public const string DicomCMoveResiliencePolicy = "DicomCMoveResiliencePolicy";
+    // Add other policy keys as needed for different services or operations
+    // Example:
+    // public const string DicomCircuitBreakerPolicy = "DicomCircuitBreakerPolicy";
 }
