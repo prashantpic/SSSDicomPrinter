@@ -1,271 +1,229 @@
-namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers;
-
-using TheSSS.DICOMViewer.Monitoring.Contracts;
-using TheSSS.DICOMViewer.Monitoring.Interfaces;
-using TheSSS.DICOMViewer.Monitoring.Configuration;
-using TheSSS.DICOMViewer.Monitoring.Mappers;
+```csharp
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using TheSSS.DICOMViewer.Monitoring.Configuration;
+using TheSSS.DICOMViewer.Monitoring.Contracts;
+using TheSSS.DICOMViewer.Monitoring.Interfaces;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-public class AlertEvaluationService
+namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers
 {
-    private readonly AlertingOptions _alertingOptions;
-    private readonly AlertDispatchService _alertDispatchService;
-    private readonly ILogger<AlertEvaluationService> _logger;
-
-    // In-memory state to track consecutive rule failures
-    // Key: Unique rule identifier (RuleName + SubMetricIdentifier)
-    // Value: Number of consecutive failures
-    private readonly Dictionary<string, int> _consecutiveFailures = new Dictionary<string, int>();
-
-    public AlertEvaluationService(
-        IOptions<AlertingOptions> alertingOptions,
-        AlertDispatchService alertDispatchService,
-        ILogger<AlertEvaluationService> logger)
-    {
-        _alertingOptions = alertingOptions?.Value ?? throw new ArgumentNullException(nameof(alertingOptions));
-        _alertDispatchService = alertDispatchService ?? throw new ArgumentNullException(nameof(alertDispatchService));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
-
     /// <summary>
-    /// Evaluates a HealthReportDto against configured alert rules.
+    /// Service that evaluates unified health reports or specific health events 
+    /// against configured alert rules to determine if an alert should be triggered.
     /// </summary>
-    /// <param name="healthReport">The health report to evaluate.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    public async Task EvaluateHealthReportAsync(HealthReportDto healthReport, CancellationToken cancellationToken)
+    public class AlertEvaluationService
     {
-        _logger.LogDebug("Evaluating health report against alert rules.");
+        private readonly IAlertRuleConfigProvider _alertRuleConfigProvider;
+        private readonly AlertDispatchService _alertDispatchService;
+        private readonly ILogger<AlertEvaluationService> _logger;
+        private readonly IOptions<AlertingOptions> _alertingOptions; // Can be used directly if IAlertRuleConfigProvider is simple
 
-        var rules = _alertingOptions.Rules;
-        if (rules == null || !rules.Any())
+        // State for consecutive failures. Key: RuleName:TargetIdentifier (if any)
+        private readonly ConcurrentDictionary<string, AlertFailureState> _consecutiveFailureStates = new();
+        internal record AlertFailureState(int FailureCount, DateTime LastFailureTimestamp);
+
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AlertEvaluationService"/> class.
+        /// </summary>
+        /// <param name="alertRuleConfigProvider">The provider for alert rule configurations.</param>
+        /// <param name="alertDispatchService">The service responsible for dispatching alerts.</param>
+        /// <param name="logger">The logger instance.</param>
+        /// <param name="alertingOptions">The alerting configuration options.</param>
+        public AlertEvaluationService(
+            IAlertRuleConfigProvider alertRuleConfigProvider,
+            AlertDispatchService alertDispatchService,
+            ILogger<AlertEvaluationService> logger,
+            IOptions<AlertingOptions> alertingOptions)
         {
-            _logger.LogInformation("No alert rules configured. Skipping evaluation.");
-            return;
+            _alertRuleConfigProvider = alertRuleConfigProvider ?? throw new ArgumentNullException(nameof(alertRuleConfigProvider));
+            _alertDispatchService = alertDispatchService ?? throw new ArgumentNullException(nameof(alertDispatchService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _alertingOptions = alertingOptions ?? throw new ArgumentNullException(nameof(alertingOptions));
         }
 
-        var triggeredAlertContexts = new List<AlertContextDto>();
-
-        foreach (var rule in rules)
+        /// <summary>
+        /// Evaluates a health report against configured alert rules and triggers alerts if conditions are met.
+        /// </summary>
+        /// <param name="healthReport">The health report to evaluate.</param>
+        /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+        /// <returns>A task that represents the asynchronous operation.</returns>
+        public async Task EvaluateHealthReportAsync(HealthReportDto healthReport, CancellationToken cancellationToken)
         {
-            if (cancellationToken.IsCancellationRequested)
+            _logger.LogInformation("Starting alert evaluation for health report timestamped {HealthReportTimestamp}.", healthReport.Timestamp);
+
+            var rules = await _alertRuleConfigProvider.GetAlertRulesAsync(cancellationToken);
+            if (rules == null || !rules.Any())
             {
-                _logger.LogInformation("Alert evaluation cancelled.");
-                break;
+                _logger.LogWarning("No alert rules configured. Skipping evaluation.");
+                return;
             }
 
-            var ruleKey = GetRuleKey(rule);
-            bool conditionMet = CheckRuleCondition(rule, healthReport, out object? triggeringData, out string? alertMessage);
+            var triggeredAlertContexts = new List<AlertContextDto>();
 
-            if (conditionMet)
+            // Evaluate Storage Info
+            if (healthReport.StorageInfo != null)
             {
-                _consecutiveFailures.TryGetValue(ruleKey, out int currentFailures);
-                currentFailures++;
-                _consecutiveFailures[ruleKey] = currentFailures;
-                _logger.LogDebug($"Rule '{rule.RuleName}' (Key: {ruleKey}) condition met. Consecutive failures: {currentFailures}/{rule.ConsecutiveFailuresToAlert}.");
+                EvaluateMetric(healthReport.StorageInfo, "StorageUsagePercent", healthReport.StorageInfo.UsedPercentage, healthReport.StorageInfo.Path, rules, triggeredAlertContexts);
+                // Add more specific storage metric evaluations if needed
+            }
 
-                if (currentFailures >= rule.ConsecutiveFailuresToAlert)
+            // Evaluate Database Connectivity
+            if (healthReport.DatabaseConnectivity != null)
+            {
+                EvaluateMetric(healthReport.DatabaseConnectivity, "DatabaseIsConnected", healthReport.DatabaseConnectivity.IsConnected ? 1 : 0, null, rules, triggeredAlertContexts); // 1 for true, 0 for false
+                if (healthReport.DatabaseConnectivity.LatencyMs.HasValue)
                 {
-                    _logger.LogWarning($"Rule '{rule.RuleName}' (Key: {ruleKey}) triggered after {currentFailures} consecutive checks.");
-                    var alertContext = HealthReportMapper.CreateAlertContext(
-                        rule,
-                        triggeringData!,
-                        alertMessage ?? $"Rule '{rule.RuleName}' condition met.",
-                        _alertingOptions.DefaultAlertSourceComponent);
-                    triggeredAlertContexts.Add(alertContext);
-                    // Optionally reset consecutive failures for this rule instance immediately after triggering an alert,
-                    // or wait until the condition is no longer met. Current logic resets when condition is false.
+                    EvaluateMetric(healthReport.DatabaseConnectivity, "DatabaseLatencyMs", healthReport.DatabaseConnectivity.LatencyMs.Value, null, rules, triggeredAlertContexts);
                 }
             }
-            else
+
+            // Evaluate PACS Statuses
+            if (healthReport.PacsStatuses != null)
             {
-                if (_consecutiveFailures.ContainsKey(ruleKey) && _consecutiveFailures[ruleKey] > 0)
+                foreach (var pacsStatus in healthReport.PacsStatuses)
                 {
-                    _logger.LogInformation($"Rule '{rule.RuleName}' (Key: {ruleKey}) condition no longer met. Resetting consecutive failure count from {_consecutiveFailures[ruleKey]}.");
-                    _consecutiveFailures[ruleKey] = 0; // Reset count
+                    EvaluateMetric(pacsStatus, "PacsConnectivity", pacsStatus.IsConnected ? 1 : 0, pacsStatus.PacsNodeId, rules, triggeredAlertContexts); // 1 for true, 0 for false
                 }
             }
+
+            // Evaluate License Status
+            if (healthReport.LicenseStatus != null)
+            {
+                EvaluateMetric(healthReport.LicenseStatus, "LicenseIsValid", healthReport.LicenseStatus.IsValid ? 1 : 0, null, rules, triggeredAlertContexts); // 1 for true, 0 for false
+                if (healthReport.LicenseStatus.DaysUntilExpiry.HasValue)
+                {
+                    EvaluateMetric(healthReport.LicenseStatus, "LicenseDaysUntilExpiry", healthReport.LicenseStatus.DaysUntilExpiry.Value, null, rules, triggeredAlertContexts);
+                }
+            }
+            
+            // Evaluate System Error Summary
+            if (healthReport.SystemErrorSummary != null)
+            {
+                 EvaluateMetric(healthReport.SystemErrorSummary, "SystemCriticalErrorCountLast24Hours", healthReport.SystemErrorSummary.CriticalErrorCountLast24Hours, null, rules, triggeredAlertContexts);
+            }
+
+            // Evaluate Automated Task Statuses
+            if (healthReport.AutomatedTaskStatuses != null)
+            {
+                foreach (var taskStatus in healthReport.AutomatedTaskStatuses)
+                {
+                    // Example: 1 if "Failed", 0 if "Success", potentially others
+                    int statusValue = taskStatus.LastRunStatus?.Equals("Failed", StringComparison.OrdinalIgnoreCase) == true ? 1 : 0;
+                    EvaluateMetric(taskStatus, "AutomatedTaskStatusFailed", statusValue, taskStatus.TaskName, rules, triggeredAlertContexts);
+                }
+            }
+
+
+            foreach (var alertContext in triggeredAlertContexts)
+            {
+                await _alertDispatchService.DispatchAlertAsync(alertContext, cancellationToken);
+            }
+
+            _logger.LogInformation("Alert evaluation completed. {TriggeredCount} alerts processed.", triggeredAlertContexts.Count);
+            CleanupOldFailureStates();
         }
 
-        // Dispatch all triggered alerts
-        foreach (var alertContext in triggeredAlertContexts)
+        private void EvaluateMetric(object rawData, string metricType, double metricValue, string? targetIdentifier, IEnumerable<AlertRule> rules, List<AlertContextDto> triggeredAlertContexts)
         {
-            if (cancellationToken.IsCancellationRequested) break;
-            await _alertDispatchService.DispatchAlertAsync(alertContext, cancellationToken);
+            foreach (var rule in rules.Where(r => r.MetricType.Equals(metricType, StringComparison.OrdinalIgnoreCase) &&
+                                                  (string.IsNullOrEmpty(r.TargetIdentifier) || r.TargetIdentifier.Equals(targetIdentifier, StringComparison.OrdinalIgnoreCase))))
+            {
+                bool conditionMet = IsConditionMet(metricValue, rule.ThresholdValue, rule.ComparisonOperator);
+                string stateKey = GenerateRuleStateKey(rule, targetIdentifier);
+
+                if (conditionMet)
+                {
+                    var currentState = _consecutiveFailureStates.AddOrUpdate(
+                        stateKey,
+                        key => new AlertFailureState(1, DateTime.UtcNow),
+                        (key, existingState) => new AlertFailureState(existingState.FailureCount + 1, DateTime.UtcNow)
+                    );
+
+                    if (currentState.FailureCount >= rule.ConsecutiveFailuresToAlert)
+                    {
+                        _logger.LogWarning("Alert rule '{RuleName}' triggered for MetricType '{MetricType}' (Target: {Target}) with value {MetricValue}. Consecutive failures: {FailureCount}",
+                            rule.RuleName, rule.MetricType, targetIdentifier ?? "N/A", metricValue, currentState.FailureCount);
+
+                        var alertContext = new AlertContextDto
+                        {
+                            TriggeredRuleName = rule.RuleName,
+                            AlertSeverity = rule.Severity,
+                            Timestamp = DateTimeOffset.UtcNow,
+                            SourceComponent = DetermineSourceComponent(metricType, targetIdentifier),
+                            Message = $"Rule '{rule.RuleName}' triggered: {metricType} " +
+                                      $"{(targetIdentifier != null ? $"for {targetIdentifier} " : "")}" +
+                                      $"is {metricValue}, which meets condition ({rule.ComparisonOperator} {rule.ThresholdValue}). " +
+                                      $"Consecutive failures: {currentState.FailureCount}.",
+                            RawData = rawData,
+                            AlertHash = $"{rule.RuleName}-{metricType}-{targetIdentifier ?? "global"}-{rule.Severity}" // Basic hash
+                        };
+                        triggeredAlertContexts.Add(alertContext);
+                    }
+                }
+                else // Condition not met, reset failure count if it was previously failing
+                {
+                    if (_consecutiveFailureStates.TryRemove(stateKey, out var removedState))
+                    {
+                         _logger.LogInformation("Condition for rule '{RuleName}' (Target: {Target}) no longer met. Resetting consecutive failure count from {FailureCount}.",
+                            rule.RuleName, targetIdentifier ?? "N/A", removedState.FailureCount);
+                    }
+                }
+            }
         }
         
-        // Clean up entries with 0 failures to prevent memory leaks
-        var keysToRemove = _consecutiveFailures.Where(pair => pair.Value == 0).Select(pair => pair.Key).ToList();
-        foreach (var key in keysToRemove)
+        private string GenerateRuleStateKey(AlertRule rule, string? targetIdentifier)
         {
-            _consecutiveFailures.Remove(key);
+            return $"{rule.RuleName}_{rule.MetricType}_{targetIdentifier ?? "global"}";
         }
 
-        _logger.LogDebug("Alert evaluation finished.");
-    }
-
-    private string GetRuleKey(AlertRule rule)
-    {
-        // A unique identifier for a rule instance, considering specific sub-metrics.
-        return $"{rule.RuleName}_{rule.MetricType}_{rule.SubMetricIdentifier ?? "GLOBAL"}";
-    }
-
-    private bool CheckRuleCondition(AlertRule rule, HealthReportDto report, out object? triggeringData, out string? message)
-    {
-        triggeringData = null;
-        message = null;
-
-        try
+        private bool IsConditionMet(double actualValue, double thresholdValue, string comparisonOperator)
         {
-            object? dataSourceObject = null;
-            string propertyName = rule.MetricType; // Simplified: MetricType maps directly to a property name or a part of it
-
-            // Determine the primary data object from the report
-            if (propertyName.StartsWith("Storage", StringComparison.OrdinalIgnoreCase)) { dataSourceObject = report.StorageHealth; propertyName = propertyName.Substring("Storage".Length); }
-            else if (propertyName.StartsWith("Database", StringComparison.OrdinalIgnoreCase)) { dataSourceObject = report.DatabaseHealth; propertyName = propertyName.Substring("Database".Length); }
-            else if (propertyName.StartsWith("Pacs", StringComparison.OrdinalIgnoreCase))
+            return comparisonOperator switch
             {
-                dataSourceObject = report.PacsConnections?.FirstOrDefault(p => p.PacsNodeId == rule.SubMetricIdentifier);
-                propertyName = propertyName.Substring("Pacs".Length);
-            }
-            else if (propertyName.StartsWith("License", StringComparison.OrdinalIgnoreCase)) { dataSourceObject = report.LicenseStatus; propertyName = propertyName.Substring("License".Length); }
-            else if (propertyName.StartsWith("SystemError", StringComparison.OrdinalIgnoreCase)) { dataSourceObject = report.SystemErrorSummary; propertyName = propertyName.Substring("SystemError".Length); }
-            else if (propertyName.StartsWith("AutomatedTask", StringComparison.OrdinalIgnoreCase))
-            {
-                dataSourceObject = report.AutomatedTaskStatuses?.FirstOrDefault(t => t.TaskName == rule.SubMetricIdentifier);
-                propertyName = propertyName.Substring("AutomatedTask".Length);
-            }
-            else if (propertyName.Equals("OverallHealthStatus", StringComparison.OrdinalIgnoreCase))
-            {
-                triggeringData = report; // The whole report for overall status
-                message = $"Overall system health is {report.OverallStatus}. Expected {rule.ComparisonOperator} {rule.ExpectedStatus}.";
-                return EvaluateStringCondition(report.OverallStatus.ToString(), rule.ComparisonOperator, rule.ExpectedStatus ?? "");
-            }
-
-            if (dataSourceObject == null)
-            {
-                _logger.LogTrace($"Data source object for MetricType '{rule.MetricType}' (Rule '{rule.RuleName}', SubMetric: '{rule.SubMetricIdentifier ?? "N/A"}') not found or null in health report.");
-                return false;
-            }
-            triggeringData = dataSourceObject;
-
-            // Get actual value using reflection (simplified, assumes MetricType maps to a property on dataSourceObject)
-            // More robust implementation would use specific checks per MetricType
-            var propertyInfo = dataSourceObject.GetType().GetProperty(propertyName, System.Reflection.BindingFlags.IgnoreCase | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-            if (propertyInfo == null)
-            {
-                 // Try direct DTO property names if MetricType is more specific
-                if (rule.MetricType == "StorageUsagePercent" && dataSourceObject is StorageHealthInfoDto sh) propertyInfo = sh.GetType().GetProperty(nameof(StorageHealthInfoDto.UsedPercentage));
-                else if (rule.MetricType == "DatabaseConnectivity" && dataSourceObject is DatabaseConnectivityInfoDto dc) propertyInfo = dc.GetType().GetProperty(nameof(DatabaseConnectivityInfoDto.IsConnected));
-                else if (rule.MetricType == "PacsConnectivity" && dataSourceObject is PacsConnectionInfoDto pc) propertyInfo = pc.GetType().GetProperty(nameof(PacsConnectionInfoDto.IsConnected));
-                else if (rule.MetricType == "LicenseIsValid" && dataSourceObject is LicenseStatusInfoDto ls) propertyInfo = ls.GetType().GetProperty(nameof(LicenseStatusInfoDto.IsValid));
-                else if (rule.MetricType == "LicenseDaysUntilExpiry" && dataSourceObject is LicenseStatusInfoDto ls_exp) propertyInfo = ls_exp.GetType().GetProperty(nameof(LicenseStatusInfoDto.DaysUntilExpiry));
-                else if (rule.MetricType == "SystemErrorCount" && dataSourceObject is SystemErrorInfoSummaryDto ses) propertyInfo = ses.GetType().GetProperty(nameof(SystemErrorInfoSummaryDto.CriticalErrorCountLast24Hours));
-                else if (rule.MetricType == "AutomatedTaskLastRunStatus" && dataSourceObject is AutomatedTaskStatusInfoDto ats) propertyInfo = ats.GetType().GetProperty(nameof(AutomatedTaskStatusInfoDto.LastRunStatus));
-            }
-
-
-            if (propertyInfo == null)
-            {
-                _logger.LogWarning($"Property '{propertyName}' (derived from MetricType '{rule.MetricType}') not found on '{dataSourceObject.GetType().Name}' for rule '{rule.RuleName}'.");
-                return false;
-            }
-
-            object? actualValue = propertyInfo.GetValue(dataSourceObject);
-            if (actualValue == null && rule.ThresholdValue != null) // Cannot compare null with a numeric threshold usually
-            {
-                 _logger.LogTrace($"Actual value for '{propertyName}' is null, cannot evaluate rule '{rule.RuleName}' against numeric threshold.");
-                 return false;
-            }
-
-
-            message = $"Metric '{rule.MetricType}' (value: {actualValue ?? "null"}) {rule.ComparisonOperator} threshold/expected: '{rule.ThresholdValue?.ToString() ?? rule.ExpectedStatus ?? "N/A"}'.";
-
-            // Evaluate condition
-            if (actualValue is double || actualValue is int || actualValue is long || actualValue is float || actualValue is decimal)
-            {
-                if (!rule.ThresholdValue.HasValue)
-                {
-                    _logger.LogWarning($"Rule '{rule.RuleName}' expects numeric comparison but ThresholdValue is not set.");
-                    return false;
-                }
-                return EvaluateNumericCondition(Convert.ToDouble(actualValue), rule.ComparisonOperator, rule.ThresholdValue.Value);
-            }
-            if (actualValue is bool booleanValue)
-            {
-                if (string.IsNullOrEmpty(rule.ExpectedStatus) || !bool.TryParse(rule.ExpectedStatus, out bool expectedBool))
-                {
-                     _logger.LogWarning($"Rule '{rule.RuleName}' expects boolean comparison but ExpectedStatus ('{rule.ExpectedStatus}') is not a valid boolean.");
-                     return false;
-                }
-                return EvaluateBooleanCondition(booleanValue, rule.ComparisonOperator, expectedBool);
-            }
-            if (actualValue is string stringValue)
-            {
-                if (string.IsNullOrEmpty(rule.ExpectedStatus))
-                {
-                     _logger.LogWarning($"Rule '{rule.RuleName}' expects string comparison but ExpectedStatus is not set.");
-                     return false;
-                }
-                return EvaluateStringCondition(stringValue, rule.ComparisonOperator, rule.ExpectedStatus);
-            }
-            if (actualValue is DateTime) // Potentially for timestamps if rules are defined for them
-            {
-                _logger.LogWarning($"DateTime comparison not yet implemented for rule '{rule.RuleName}'.");
-                return false;
-            }
-
-            _logger.LogWarning($"Unsupported data type '{actualValue?.GetType().Name ?? "null"}' for metric '{rule.MetricType}' in rule '{rule.RuleName}'.");
-            return false;
+                "GreaterThan" => actualValue > thresholdValue,
+                "GreaterThanOrEqualTo" => actualValue >= thresholdValue,
+                "LessThan" => actualValue < thresholdValue,
+                "LessThanOrEqualTo" => actualValue <= thresholdValue,
+                "EqualTo" => Math.Abs(actualValue - thresholdValue) < 0.000001, // double comparison
+                "NotEqualTo" => Math.Abs(actualValue - thresholdValue) >= 0.000001,
+                _ => throw new ArgumentOutOfRangeException(nameof(comparisonOperator), $"Unsupported comparison operator: {comparisonOperator}")
+            };
         }
-        catch (Exception ex)
+
+        private string DetermineSourceComponent(string metricType, string? targetIdentifier)
         {
-            _logger.LogError(ex, $"Error evaluating rule '{rule.RuleName}'.");
-            return false;
+            // Basic determination, can be enhanced
+            if (metricType.Contains("Storage")) return "Storage";
+            if (metricType.Contains("Database")) return "Database";
+            if (metricType.Contains("Pacs")) return targetIdentifier ?? "PACS";
+            if (metricType.Contains("License")) return "License";
+            if (metricType.Contains("Error")) return "SystemErrors";
+            if (metricType.Contains("Task")) return targetIdentifier ?? "AutomatedTasks";
+            return "System";
         }
-    }
 
-    private bool EvaluateNumericCondition(double actual, string op, double threshold)
-    {
-        return op switch
+        private void CleanupOldFailureStates()
         {
-            "GreaterThan" => actual > threshold,
-            "LessThan" => actual < threshold,
-            "EqualTo" => actual == threshold, // Use tolerance for double comparison if exact match is risky
-            "NotEqualTo" => actual != threshold,
-            "GreaterThanOrEqualTo" => actual >= threshold,
-            "LessThanOrEqualTo" => actual <= threshold,
-            _ => { _logger.LogWarning($"Unsupported numeric comparison operator: {op}"); return false; }
-        };
-    }
-
-    private bool EvaluateBooleanCondition(bool actual, string op, bool expected)
-    {
-        return op switch
-        {
-            "EqualTo" => actual == expected,
-            "NotEqualTo" => actual != expected,
-            _ => { _logger.LogWarning($"Unsupported boolean comparison operator: {op}"); return false; }
-        };
-    }
-
-    private bool EvaluateStringCondition(string actual, string op, string expected)
-    {
-        if (actual == null) return false; // Cannot compare null string for equality/contains
-        return op switch
-        {
-            "EqualTo" => actual.Equals(expected, StringComparison.OrdinalIgnoreCase),
-            "NotEqualTo" => !actual.Equals(expected, StringComparison.OrdinalIgnoreCase),
-            "Contains" => actual.Contains(expected, StringComparison.OrdinalIgnoreCase),
-            "DoesNotContain" => !actual.Contains(expected, StringComparison.OrdinalIgnoreCase),
-            // Add StartsWith, EndsWith if needed
-            _ => { _logger.LogWarning($"Unsupported string comparison operator: {op}"); return false; }
-        };
+            // Clean up states for rules that haven't failed recently (e.g., older than 2x the longest check interval or a fixed duration)
+            // This prevents unbounded growth of the dictionary if rules become healthy.
+            // For simplicity, use a fixed duration, e.g., 1 day. This should be configurable or tied to monitoring intervals.
+            var cutoff = DateTime.UtcNow.AddDays(-1); 
+            foreach (var key in _consecutiveFailureStates.Keys)
+            {
+                if (_consecutiveFailureStates.TryGetValue(key, out var state) && state.LastFailureTimestamp < cutoff)
+                {
+                    _consecutiveFailureStates.TryRemove(key, out _);
+                    _logger.LogDebug("Removed stale consecutive failure state for key: {StateKey}", key);
+                }
+            }
+        }
     }
 }
+```

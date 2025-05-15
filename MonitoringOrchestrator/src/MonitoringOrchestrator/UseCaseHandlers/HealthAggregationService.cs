@@ -1,129 +1,177 @@
-namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers;
-
-using TheSSS.DICOMViewer.Monitoring.Interfaces;
-using TheSSS.DICOMViewer.Monitoring.Contracts;
-using TheSSS.DICOMViewer.Monitoring.Mappers;
-using TheSSS.DICOMViewer.Monitoring.Exceptions;
+```csharp
 using Microsoft.Extensions.Logging;
+using TheSSS.DICOMViewer.Monitoring.Contracts;
+using TheSSS.DICOMViewer.Monitoring.Exceptions;
+using TheSSS.DICOMViewer.Monitoring.Integrations;
+using TheSSS.DICOMViewer.Monitoring.Interfaces;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System;
 
-public class HealthAggregationService
+namespace TheSSS.DICOMViewer.Monitoring.UseCaseHandlers
 {
-    private readonly IEnumerable<IHealthDataSource> _dataSources;
-    private readonly ILogger<HealthAggregationService> _logger;
-
-    public HealthAggregationService(
-        IEnumerable<IHealthDataSource> dataSources,
-        ILogger<HealthAggregationService> logger)
-    {
-        _dataSources = dataSources ?? throw new ArgumentNullException(nameof(dataSources));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
-
     /// <summary>
-    /// Collects health data from all registered data sources and aggregates it into a HealthReportDto.
+    /// Service responsible for collecting data from various health sources and 
+    /// aggregating it into a unified health report.
     /// </summary>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>A task that represents the asynchronous operation, returning the aggregated HealthReportDto.</returns>
-    public async Task<HealthReportDto> AggregateHealthDataAsync(CancellationToken cancellationToken)
+    public class HealthAggregationService
     {
-        _logger.LogInformation("Starting health data aggregation.");
+        private readonly IEnumerable<IHealthDataSource> _healthDataSources;
+        private readonly ILogger<HealthAggregationService> _logger;
+        private readonly PrometheusMetricsCollector _prometheusMetricsCollector; // As per DI registration instruction
 
-        var report = new HealthReportDto
+        /// <summary>
+        /// Initializes a new instance of the <see cref="HealthAggregationService"/> class.
+        /// </summary>
+        /// <param name="healthDataSources">An enumerable collection of health data source implementations.</param>
+        /// <param name="logger">The logger instance.</param>
+        /// <param name="prometheusMetricsCollector">The Prometheus metrics collector instance.</param>
+        public HealthAggregationService(
+            IEnumerable<IHealthDataSource> healthDataSources,
+            ILogger<HealthAggregationService> logger,
+            PrometheusMetricsCollector prometheusMetricsCollector)
         {
-            Timestamp = DateTime.UtcNow,
-            PacsConnections = new List<PacsConnectionInfoDto>(),
-            AutomatedTaskStatuses = new List<AutomatedTaskStatusInfoDto>()
-        };
+            _healthDataSources = healthDataSources ?? throw new ArgumentNullException(nameof(healthDataSources));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _prometheusMetricsCollector = prometheusMetricsCollector ?? throw new ArgumentNullException(nameof(prometheusMetricsCollector));
+        }
 
-        var tasks = _dataSources.Select(source => CollectDataSourceDataAsync(source, cancellationToken)).ToList();
-        
-        // Using Task.WhenAll to run data collection concurrently
-        var results = await Task.WhenAll(tasks);
-
-        // Process results and populate the report DTO
-        foreach (var result in results)
+        /// <summary>
+        /// Asynchronously collects health data from all registered data sources and aggregates it into a <see cref="HealthReportDto"/>.
+        /// </summary>
+        /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+        /// <returns>A task that represents the asynchronous operation. The task result contains the aggregated <see cref="HealthReportDto"/>.</returns>
+        public async Task<HealthReportDto> AggregateHealthAsync(CancellationToken cancellationToken)
         {
-            if (result.Success && result.Data != null)
+            _logger.LogInformation("Starting health data aggregation.");
+            var report = new HealthReportDto
             {
-                switch (result.Data)
+                Timestamp = DateTimeOffset.UtcNow,
+                StorageInfo = null,
+                DatabaseConnectivity = null,
+                PacsStatuses = new List<PacsConnectionInfoDto>(),
+                LicenseStatus = null,
+                SystemErrorSummary = null,
+                AutomatedTaskStatuses = new List<AutomatedTaskStatusInfoDto>(),
+                Details = new Dictionary<string, object>()
+            };
+
+            var dataSourceTasks = _healthDataSources.Select(async dataSource =>
+            {
+                try
                 {
-                    case StorageHealthInfoDto storageHealth:
-                        report.StorageHealth = storageHealth;
-                        _logger.LogDebug("Aggregated StorageHealth data.");
-                        break;
-                    case DatabaseConnectivityInfoDto databaseHealth:
-                        report.DatabaseHealth = databaseHealth;
-                        _logger.LogDebug("Aggregated DatabaseHealth data.");
-                        break;
-                    case IEnumerable<PacsConnectionInfoDto> pacsConnections:
-                        report.PacsConnections = pacsConnections;
-                        _logger.LogDebug($"Aggregated {pacsConnections.Count()} PACSConnectionInfo data points.");
-                        break;
-                    case PacsConnectionInfoDto singlePacsConnection: // If a source returns a single Pacs item
-                        ((List<PacsConnectionInfoDto>)report.PacsConnections!).Add(singlePacsConnection);
-                         _logger.LogDebug($"Aggregated single PACSConnectionInfo data for {singlePacsConnection.PacsNodeId}.");
-                        break;
-                    case LicenseStatusInfoDto licenseStatus:
-                        report.LicenseStatus = licenseStatus;
-                        _logger.LogDebug("Aggregated LicenseStatus data.");
-                        break;
-                    case SystemErrorInfoSummaryDto systemErrorSummary:
-                        report.SystemErrorSummary = systemErrorSummary;
-                        _logger.LogDebug("Aggregated SystemErrorSummary data.");
-                        break;
-                    case IEnumerable<AutomatedTaskStatusInfoDto> taskStatuses:
-                        report.AutomatedTaskStatuses = taskStatuses;
-                        _logger.LogDebug($"Aggregated {taskStatuses.Count()} AutomatedTaskStatusInfo data points.");
-                        break;
-                    case AutomatedTaskStatusInfoDto singleTaskStatus: // If a source returns a single Task item
-                        ((List<AutomatedTaskStatusInfoDto>)report.AutomatedTaskStatuses!).Add(singleTaskStatus);
-                        _logger.LogDebug($"Aggregated single AutomatedTaskStatusInfo data for {singleTaskStatus.TaskName}.");
-                        break;
-                    default:
-                        _logger.LogWarning($"Aggregator received data from source '{result.DataSourceName}' of unhandled type: {result.Data.GetType().FullName}");
-                        break;
+                    _logger.LogDebug("Fetching health data from {DataSourceType}", dataSource.GetType().Name);
+                    var healthData = await dataSource.GetHealthDataAsync(cancellationToken);
+                    _logger.LogDebug("Successfully fetched health data from {DataSourceType}", dataSource.GetType().Name);
+                    return (dataSource.GetType().Name, healthData, (Exception?)null);
                 }
-            }
-            else if (!result.Success)
+                catch (DataSourceUnavailableException ex)
+                {
+                    _logger.LogError(ex, "Data source {DataSourceType} is unavailable.", dataSource.GetType().Name);
+                    return (dataSource.GetType().Name, (object?)null, ex);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error fetching health data from {DataSourceType}.", dataSource.GetType().Name);
+                    return (dataSource.GetType().Name, (object?)null, ex);
+                }
+            }).ToList();
+
+            var results = await Task.WhenAll(dataSourceTasks);
+
+            bool hasErrors = false;
+            bool hasWarnings = false; // Placeholder for future warning logic from sources
+
+            foreach (var result in results)
             {
-                _logger.LogWarning($"Data collection failed for source '{result.DataSourceName}'. Error: {result.Error?.Message}");
-                // Optionally, add specific error indicators to the HealthReportDto for failed sources
+                if (result.Item3 != null) // An exception occurred
+                {
+                    hasErrors = true;
+                    report.Details[$"{result.Item1}_Error"] = result.Item3.Message;
+                    continue;
+                }
+
+                if (result.healthData == null)
+                {
+                    _logger.LogWarning("Data source {DataSourceType} returned null data.", result.Item1);
+                    // Potentially mark as warning or error depending on specific source requirements
+                    report.Details[$"{result.Item1}_Warning"] = "Data source returned null data.";
+                    continue;
+                }
+                
+                AssignHealthDataToReport(report, result.healthData);
             }
+
+            // Determine overall system status
+            if (hasErrors || report.StorageInfo?.UsedPercentage > 95 || (report.DatabaseConnectivity?.IsConnected == false) || 
+                (report.PacsStatuses != null && report.PacsStatuses.Any(p => !p.IsConnected)) ||
+                (report.LicenseStatus?.IsValid == false) ||
+                (report.SystemErrorSummary?.CriticalErrorCountLast24Hours > 0) ||
+                (report.AutomatedTaskStatuses != null && report.AutomatedTaskStatuses.Any(t => t.LastRunStatus?.Equals("Failed", StringComparison.OrdinalIgnoreCase) == true)))
+            {
+                report.SystemStatus = SystemStatus.Error;
+            }
+            else if (hasWarnings || report.StorageInfo?.UsedPercentage > 80 ||
+                     (report.LicenseStatus != null && report.LicenseStatus.DaysUntilExpiry.HasValue && report.LicenseStatus.DaysUntilExpiry <= 7))
+            {
+                report.SystemStatus = SystemStatus.Warning;
+            }
+            else
+            {
+                report.SystemStatus = SystemStatus.Healthy;
+            }
+
+            _logger.LogInformation("Health data aggregation completed. Overall status: {SystemStatus}", report.SystemStatus);
+
+            try
+            {
+                _prometheusMetricsCollector.UpdateMetrics(report);
+                _logger.LogInformation("Prometheus metrics updated successfully.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update Prometheus metrics.");
+            }
+
+            return report;
         }
 
-        // Determine overall status based on collected data
-        report.OverallStatus = HealthReportMapper.DetermineOverallStatus(report);
-
-        _logger.LogInformation($"Health data aggregation finished. Overall status: {report.OverallStatus}");
-
-        return report;
-    }
-
-    private async Task<(string DataSourceName, bool Success, object? Data, Exception? Error)> CollectDataSourceDataAsync(
-        IHealthDataSource source,
-        CancellationToken cancellationToken)
-    {
-        try
+        private void AssignHealthDataToReport(HealthReportDto report, object healthData)
         {
-            _logger.LogDebug($"Collecting data from source: {source.Name}");
-            var data = await source.GetHealthDataAsync(cancellationToken);
-            _logger.LogDebug($"Successfully collected data from source: {source.Name}");
-            return (source.Name, true, data, null);
-        }
-        catch (DataSourceUnavailableException dsuEx)
-        {
-            _logger.LogError(dsuEx, $"Data source '{source.Name}' is unavailable.");
-            return (source.Name, false, null, dsuEx);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"An unexpected error occurred while collecting data from source '{source.Name}'.");
-            return (source.Name, false, null, ex);
+            switch (healthData)
+            {
+                case StorageHealthInfoDto storageInfo:
+                    report.StorageInfo = storageInfo;
+                    break;
+                case DatabaseConnectivityInfoDto dbConnectivityInfo:
+                    report.DatabaseConnectivity = dbConnectivityInfo;
+                    break;
+                case IEnumerable<PacsConnectionInfoDto> pacsStatuses:
+                    report.PacsStatuses.AddRange(pacsStatuses);
+                    break;
+                case PacsConnectionInfoDto pacsStatus: // If a source returns a single PACS status
+                     report.PacsStatuses.Add(pacsStatus);
+                    break;
+                case LicenseStatusInfoDto licenseStatus:
+                    report.LicenseStatus = licenseStatus;
+                    break;
+                case SystemErrorInfoSummaryDto errorSummary:
+                    report.SystemErrorSummary = errorSummary;
+                    break;
+                case IEnumerable<AutomatedTaskStatusInfoDto> taskStatuses:
+                    report.AutomatedTaskStatuses.AddRange(taskStatuses);
+                    break;
+                case AutomatedTaskStatusInfoDto taskStatus:  // If a source returns a single task status
+                    report.AutomatedTaskStatuses.Add(taskStatus);
+                    break;
+                default:
+                    _logger.LogWarning("Received unknown health data type: {DataType}. Adding to 'Details'.", healthData.GetType().Name);
+                    report.Details[healthData.GetType().Name] = healthData;
+                    break;
+            }
         }
     }
 }
+```
