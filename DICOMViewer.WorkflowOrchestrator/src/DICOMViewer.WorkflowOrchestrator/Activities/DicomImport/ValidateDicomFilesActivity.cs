@@ -1,36 +1,46 @@
+using System.Threading;
 using System.Threading.Tasks;
 using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Interfaces;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Sagas.State;
 
 namespace TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Activities.DicomImport
 {
-    public class ValidateDicomFilesActivity : IWorkflowActivity<ImportWorkflowState>
+    public class ValidateDicomFilesActivity
     {
         private readonly IDicomImportServiceAdapter _importService;
+        private readonly IWorkflowProgressReporter _progressReporter;
 
-        public ValidateDicomFilesActivity(IDicomImportServiceAdapter importService)
+        public ValidateDicomFilesActivity(IDicomImportServiceAdapter importService, IWorkflowProgressReporter progressReporter)
         {
             _importService = importService;
+            _progressReporter = progressReporter;
         }
 
-        public async Task<bool> ExecuteAsync(ImportWorkflowState state)
+        public async Task ExecuteAsync(ImportWorkflowState state, CancellationToken cancellationToken)
         {
+            state.CurrentActivity = "Validation";
             foreach (var filePath in state.FilesToProcess)
             {
-                try
+                var result = await _importService.ValidateFileAsync(filePath, state.WorkflowId, cancellationToken);
+                
+                if (result.IsValid)
                 {
-                    var isValid = await _importService.ValidateDicomFileAsync(filePath);
-                    if (!isValid)
-                    {
-                        state.ErroredFiles[filePath] = "Invalid DICOM file format";
-                    }
+                    state.ProcessedFiles.Add(filePath);
                 }
-                catch (Exception ex)
+                else
                 {
-                    state.ErroredFiles[filePath] = $"Validation error: {ex.Message}";
+                    state.FailedFiles.Add(filePath);
                 }
+
+                state.ProcessedFilesCount++;
+                await _progressReporter.ReportProgressAsync(
+                    state.WorkflowId,
+                    (int)((double)state.ProcessedFilesCount / state.TotalFilesCount * 100),
+                    $"Validated {filePath}",
+                    "Validation",
+                    state.ProcessedFilesCount,
+                    state.TotalFilesCount
+                );
             }
-            return state.ErroredFiles.Count == 0;
         }
     }
 }

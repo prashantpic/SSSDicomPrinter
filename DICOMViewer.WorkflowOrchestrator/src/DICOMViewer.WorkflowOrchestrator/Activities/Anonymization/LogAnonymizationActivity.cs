@@ -1,10 +1,10 @@
+using System.Threading;
 using System.Threading.Tasks;
 using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Interfaces;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Sagas.State;
 
 namespace TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Activities.Anonymization
 {
-    public class LogAnonymizationActivity : IWorkflowActivity<SagaStateBase>
+    public class LogAnonymizationActivity
     {
         private readonly IAuditLoggerAdapter _auditLogger;
 
@@ -13,18 +13,17 @@ namespace TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Activities.Anonymi
             _auditLogger = auditLogger;
         }
 
-        public async Task<bool> ExecuteAsync(SagaStateBase state)
+        public async Task ExecuteAsync(Guid workflowId, Guid studyId, Guid profileId, CancellationToken cancellationToken)
         {
-            var details = new
-            {
-                WorkflowId = state.WorkflowId,
-                Operation = "DICOM Anonymization",
-                Timestamp = DateTime.UtcNow,
-                Metadata = "PHI redaction completed"
-            };
-
-            await _auditLogger.LogAuditEntryAsync("Anonymization", details.ToString());
-            return true;
+            await _auditLogger.LogAuditEventAsync(
+                "AnonymizationCompleted",
+                $"Study {studyId} anonymized with profile {profileId}",
+                null,
+                studyId,
+                null,
+                workflowId,
+                new { ProfileId = profileId, Timestamp = DateTime.UtcNow }
+            );
         }
     }
 }

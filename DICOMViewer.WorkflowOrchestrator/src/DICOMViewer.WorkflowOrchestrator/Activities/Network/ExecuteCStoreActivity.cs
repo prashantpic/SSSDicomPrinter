@@ -1,37 +1,26 @@
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Interfaces;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Services;
-using TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Sagas.State;
 
 namespace TheSSS.DICOMViewer.Application.WorkflowOrchestrator.Activities.Network
 {
-    public class ExecuteCStoreActivity : IWorkflowActivity<ImportWorkflowState>
+    public class ExecuteCStoreActivity
     {
         private readonly NetworkOperationCoordinator _networkCoordinator;
-        private readonly IDicomNetworkServiceAdapter _networkService;
 
-        public ExecuteCStoreActivity(
-            NetworkOperationCoordinator networkCoordinator,
-            IDicomNetworkServiceAdapter networkService)
+        public ExecuteCStoreActivity(NetworkOperationCoordinator networkCoordinator)
         {
             _networkCoordinator = networkCoordinator;
-            _networkService = networkService;
         }
 
-        public async Task<bool> ExecuteAsync(ImportWorkflowState state)
+        public async Task ExecuteAsync(Guid pacsNodeId, IEnumerable<string> dicomFiles, Guid workflowId, CancellationToken cancellationToken)
         {
-            var success = await _networkCoordinator.ExecuteNetworkOperationAsync(async () =>
-            {
-                foreach (var filePath in state.FilesToProcess)
-                {
-                    await _networkService.CStoreAsync("DESTINATION_AE", new List<string> { filePath });
-                    state.ProcessedFiles.Add(filePath);
-                }
-                return true;
-            }, "C-STORE Operation");
-
-            return success;
+            await _networkCoordinator.SendCStoreAsync(
+                pacsNodeId,
+                dicomFiles,
+                workflowId,
+                cancellationToken
+            );
         }
     }
 }
