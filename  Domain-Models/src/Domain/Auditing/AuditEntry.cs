@@ -4,17 +4,19 @@ namespace TheSSS.DicomViewer.Domain.Auditing
 {
     public class AuditEntry
     {
-        public AuditLogId Id { get; init; }
-        public DateTime Timestamp { get; init; }
-        public string EventType { get; init; }
-        public string EventDetails { get; init; }
+        public AuditLogId Id { get; private set; }
+        public DateTime Timestamp { get; private set; }
+        public string EventType { get; private set; }
+        public string EventDetails { get; private set; }
 
-        public AuditEntry(AuditLogId id, DateTime timestamp, string eventType, string details)
+        private AuditEntry() { }
+
+        public AuditEntry(AuditLogId id, DateTime timestamp, string eventType, string eventDetails)
         {
             Id = id ?? throw new ArgumentNullException(nameof(id));
             Timestamp = timestamp;
             EventType = eventType ?? throw new ArgumentNullException(nameof(eventType));
-            EventDetails = details ?? throw new ArgumentNullException(nameof(details));
+            EventDetails = eventDetails ?? throw new ArgumentNullException(nameof(eventDetails));
         }
     }
 }

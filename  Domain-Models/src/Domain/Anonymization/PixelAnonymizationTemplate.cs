@@ -4,11 +4,13 @@ namespace TheSSS.DicomViewer.Domain.Anonymization
 {
     public class PixelAnonymizationTemplate
     {
-        public PixelAnonymizationTemplateId Id { get; init; }
+        public PixelAnonymizationTemplateId Id { get; private set; }
         public string TemplateName { get; private set; }
-        public PixelTemplateContent Definition { get; private set; }
+        public object Definition { get; private set; }
 
-        public PixelAnonymizationTemplate(PixelAnonymizationTemplateId id, string templateName, PixelTemplateContent definition)
+        private PixelAnonymizationTemplate() { }
+
+        public PixelAnonymizationTemplate(PixelAnonymizationTemplateId id, string templateName, object definition)
         {
             Id = id ?? throw new ArgumentNullException(nameof(id));
             TemplateName = templateName ?? throw new ArgumentNullException(nameof(templateName));

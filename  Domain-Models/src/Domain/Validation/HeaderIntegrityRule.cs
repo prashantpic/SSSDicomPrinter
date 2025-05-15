@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using TheSSS.DicomViewer.Domain.Core.ValueObjects;
 
 namespace TheSSS.DicomViewer.Domain.Validation
 {
@@ -6,11 +7,11 @@ namespace TheSSS.DicomViewer.Domain.Validation
     {
         public IEnumerable<ComplianceIssue> Check(DicomValidationContext context)
         {
-            if (context?.FileMetadata == null)
-                yield return new ComplianceIssue("Invalid validation context", IssueSeverity.Error);
-            
-            // Basic header validation logic placeholder
-            yield break;
+            var metaTags = context.FileMetadata.Keys.Where(t => t.Group == 0x0002).ToList();
+            if (metaTags.Count == 0)
+            {
+                yield return new ComplianceIssue("Missing DICOM File Meta Information", IssueSeverity.Error);
+            }
         }
     }
 }

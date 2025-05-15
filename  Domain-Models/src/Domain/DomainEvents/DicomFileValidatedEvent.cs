@@ -9,11 +9,11 @@ namespace TheSSS.DicomViewer.Domain.DomainEvents
         public ComplianceReport Report { get; }
         public DateTimeOffset OccurredOn { get; }
 
-        public DicomFileValidatedEvent(string path, ComplianceReport report)
+        public DicomFileValidatedEvent(string filePath, ComplianceReport report, DateTimeOffset occurredOn)
         {
-            FilePath = path ?? throw new ArgumentNullException(nameof(path));
+            FilePath = filePath ?? throw new ArgumentNullException(nameof(filePath));
             Report = report ?? throw new ArgumentNullException(nameof(report));
-            OccurredOn = DateTimeOffset.UtcNow;
+            OccurredOn = occurredOn;
         }
     }
 }
